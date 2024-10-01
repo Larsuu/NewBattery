@@ -1,0 +1,20 @@
+// Test case for the readVoltage function
+TEST(BatteryTest, ReadVoltage) {
+    Battery battery;
+
+    // Set up the necessary variables and mocks for the test
+    uint32_t expectedMilliVoltage = 3500; // Set the expected millivoltage value
+    uint32_t expectedPrecentVoltage = 83; // Set the expected percentage voltage value
+
+    // Mock the necessary functions and return values
+    EXPECT_CALL(battery, adc1_get_raw(ADC_CHANNEL))
+        .Times(3)
+        .WillRepeatedly(Return(1000)); // Mock the ADC readings to return a fixed value
+
+    // Call the function to be tested
+    battery.readVoltage();
+
+    // Check the results
+    EXPECT_EQ(battery.getMilliVoltage(), expectedMilliVoltage);
+    EXPECT_EQ(battery.getVoltagePercentage(battery.getMilliVoltage()), expectedPrecentVoltage);
+}
