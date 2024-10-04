@@ -22,7 +22,7 @@ Battery::Battery(   int tempSensor,
                     red(redLed),
                     yellow(yellowLed),
                     green(greenLed),
-                    batry({10, 220, 80, 83, 90, 25, 30, 33, false, false}) 
+                    batry() 
                 {
                     heaterPID.SetTunings(kp, ki, kd); //apply PID gains
                     heaterPID.SetMode(QuickPID::Control::automatic);   
@@ -31,7 +31,7 @@ Battery::Battery(   int tempSensor,
                     heaterPID.SetAntiWindupMode(QuickPID::iAwMode::iAwClamp); 
 
                     MOVAIndex = 0;
-                    preferences.end();
+
                     
                     instance = this;
 
@@ -49,6 +49,12 @@ void Battery::begin()
 
         pinMode(redLed, OUTPUT);
         digitalWrite(redLed, HIGH);
+        // preferences.begin("btry", false);
+
+
+        loadSettings();
+        // saveSettings();
+        // loadSettings();
 
     setup();
 }
@@ -250,12 +256,25 @@ Battery::TempState Battery::getTempState(   float temperature,
         - maybe Future: Black Box kind of logging for backtracking faults 
 */     
 void Battery::saveSettings() {
-    preferences.begin("battery_status", false); // Open preferences with namespace "battery_settings" 
+    preferences.begin("btry", false); // Open preferences with namespace "battery_settings" 
 
+    preferences.putUInt("size", batry.size);
+    preferences.putUInt("temperature", batry.temperature);
+    preferences.putUInt("currentVolt", batry.voltageInPrecent);
+    preferences.putUInt("ecoVolt", batry.ecoVoltPrecent);
+    preferences.putUInt("boostVolt", batry.boostVoltPrecent);
+    preferences.putUInt("ecoTemp", batry.ecoTemp);
+    preferences.putUInt("boostTemp", batry.boostTemp);
+    preferences.putUInt("resistance", batry.resistance);
+
+
+
+
+/*
     if(!setup_done) {
         preferences.clear();
 
-        preferences.putUInt("size",             (int)10);
+        preferences.putUInt("size",             (u_int32_t)10);
         preferences.putUInt("temperature",      (int)10);
         preferences.putUInt("voltageInPrecent", (int)10);
         preferences.putUInt("ecoVolt",          (int)10);
@@ -265,16 +284,18 @@ void Battery::saveSettings() {
         preferences.putUInt("resistance",       (int)10);
     
         setup_done = true;
-    }
+    } else {
 
     // Sort batry related components
     preferences.putUInt("size", batry.size);
-    preferences.putUInt("resistance", batry.resistance);
-    preferences.putUInt("ecoTemp", batry.ecoTemp);
+    preferences.putUInt("temperature", batry.temperature);
+    preferences.putUInt("voltageInPrecent", batry.voltageInPrecent);
     preferences.putUInt("ecoVolt", batry.ecoVoltPrecent);
     preferences.putUInt("boostVolt", batry.boostVoltPrecent);
+    preferences.putUInt("ecoTemp", batry.ecoTemp);
     preferences.putUInt("boostTemp", batry.boostTemp);
-
+    preferences.putUInt("resistance", batry.resistance);
+    
 
     preferences.putBool("httpAccess", settings.httpAccess);
     preferences.putBool("initialSetup", settings.initialSetup);
@@ -285,21 +306,49 @@ void Battery::saveSettings() {
 
     for (int i = 0; i < 13; i++) preferences.putUChar(("username" + String(i)).c_str(), settings.username[i]);
     for (int i = 0; i < 13; i++) preferences.putUChar(("password" + String(i)).c_str(), settings.password[i]);
+*/
+
 
     preferences.end(); // Close preferences, commit changes
 }
 
 void Battery::loadSettings() {
-    preferences.begin("battery_status", false); // Open preferences with namespace "battery_settings" 
+    preferences.begin("btry", false); // Open preferences with namespace "battery_settings" 
 
     // Sort batry related components
-    batry.size = preferences.getUInt("size", 0);
-    batry.resistance = preferences.getUInt("resistance", 0);
-    batry.ecoTemp = preferences.getUInt("ecoTemp", 0);
-    batry.ecoVoltPrecent = preferences.getUShort("ecoVolt", 0);
-    batry.boostVoltPrecent = preferences.getUShort("boostVolt", 0);
-    batry.boostTemp = preferences.getUInt("boostTemp", 0);
+    batry.size = preferences.getUInt("size", 1);
+    Serial.print("Battery size loaded from memory: ");
+    Serial.println(batry.size);
 
+    batry.temperature = preferences.getUInt("temperature", 1);
+    Serial.print("Battery temperature loaded from memory: ");
+    Serial.println(batry.temperature);
+
+    batry.voltageInPrecent = preferences.getUInt("currentVolt", 1);
+    Serial.print("Battery voltage loaded from memory: ");
+    Serial.println(batry.voltageInPrecent);
+
+    batry.resistance = preferences.getUInt("resistance", 1);
+    Serial.print("Battery resistance loaded from memory: ");
+    Serial.println(batry.resistance);
+
+    batry.ecoVoltPrecent = preferences.getUInt("ecoVolt", 1);
+    Serial.print("Battery eco voltage loaded from memory: ");
+    Serial.println(batry.ecoVoltPrecent);
+
+    batry.boostVoltPrecent = preferences.getUInt("boostVolt", 1);
+    Serial.print("Battery boost voltage loaded from memory: ");
+    Serial.println(batry.boostVoltPrecent);
+
+    batry.boostTemp = preferences.getUInt("boostTemp", 1);
+    Serial.print("Battery boost temperature loaded from memory: ");
+    Serial.println(batry.boostTemp);
+
+    batry.ecoTemp = preferences.getUInt("ecoTemp", 1);
+    Serial.print("Battery eco temperature loaded from memory: ");
+    Serial.println(batry.ecoTemp);
+
+/*
     // Sort settings related components
     settings.httpAccess = preferences.getBool("httpAccess", false);
     settings.initialSetup = preferences.getBool("initialSetup", false);
@@ -310,7 +359,7 @@ void Battery::loadSettings() {
 
     for (int i = 0; i < 13; i++) settings.username[i] = preferences.getUChar(("username" + String(i)).c_str(), 0);
     for (int i = 0; i < 13; i++) settings.password[i] = preferences.getUChar(("password" + String(i)).c_str(), 0);
-
+*/
     preferences.end(); // Close preferences
 }
 /*
@@ -442,7 +491,7 @@ int Battery::getBatteryDODprecent() {
     
     ECONOMY CHARGING
 */
-bool Battery::setEcoPrecentVoltage( int value) {
+bool Battery::setEcoPrecentVoltage(int value) {
     if(value > 50 && value < 100 && value < batry.boostVoltPrecent) {
         batry.ecoVoltPrecent = value;
         return true;
@@ -656,4 +705,15 @@ bool Battery::getActivateVoltageBoost() {
         return true;
     else
         return false;
+}
+
+
+float Battery::calculateChargeTime(float batteryCapacity, float chargerCurrent, float initialPercentage, float targetPercentage) {
+    // Calculate the charge needed in Ah
+    float chargeNeeded = batteryCapacity * (targetPercentage - initialPercentage) / 100.0;
+
+    // Calculate the time required in hours
+    float timeRequired = chargeNeeded / chargerCurrent;
+
+    return timeRequired;
 }

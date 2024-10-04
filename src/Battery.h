@@ -157,6 +157,8 @@ public:
     bool activateVoltageBoost(bool value);
     bool getActivateVoltageBoost();
 
+    int calculateChargeTime(int batteryCapacity, int chargerCurrent, int initialPercentage, int targetPercentage) {
+
 /*
  *  Private methods
  *
