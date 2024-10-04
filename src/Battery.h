@@ -8,6 +8,7 @@
 #include <QuickPID.h>
 #include <Blinker.h>
 #include <Preferences.h>
+#include <ESPUI.h>
 
 #define V_REF 1121
 #define MOVING_AVG_SIZE 5
@@ -18,14 +19,16 @@
 
 struct batterys {
 
-    uint16_t    size;
-    uint16_t    temperature;
-    uint16_t    voltagePrecent;
-    uint16_t    ecoVoltPrecent;
-    uint16_t    boostVoltPrecent;
-    uint16_t    ecoTempPrecent;
-    uint16_t    boostTempPrecent;
-    uint16_t    resistance;
+    uint32_t     size;
+    uint32_t     temperature;
+    uint32_t     voltageInPrecent;
+    uint32_t     ecoVoltPrecent;
+    uint32_t     boostVoltPrecent;
+    uint32_t     ecoTemp;
+    uint32_t     boostTemp;
+    uint32_t     resistance;
+    bool        voltBoostActive;
+    bool        tempBoostActive;
 };
 
 struct Settings {
@@ -40,6 +43,46 @@ struct Settings {
 };
 
 
+/*
+
+// Battery callbacks
+void ecoVoltCallback(Control *sender, int value);
+void boostVoltCallback(Control *sender, int value);
+
+void ecoTempCallback(Control *sender, int type);
+void boostTempCallback(Control *sender, int type);
+
+void BoostTempSwitcerCallback(Control *sender, int type);
+void BoostVoltageSwitcerCallback(Control *sender, int type);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 class Battery {
 public:
 
@@ -51,6 +94,7 @@ public:
             int yellowLed = 18, 
             int redLed = 17);
 
+    void begin();
     void loop();
     void setup();
 
@@ -58,16 +102,17 @@ public:
 
     void saveSettings();
     void loadSettings();
-    
+
     void readVoltage();
 
     float getTemperature();         // Returns the current battery temperature
     void readTemperature();
     bool isTemperatureSafe();
+    int getBatteryDODprecent();
     // void onIntervalElapsed();
 
     int getVoltageInPercentage(uint32_t milliVoltage);
-    int btryToMilliVoltage(int precent); 
+    float btryToVoltage(int precent); 
 
     static void handleIntervalElapsed(int deviceIndex, int32_t temperatureRAW); // Static callback
 
@@ -84,6 +129,10 @@ public:
     unsigned long lastVoltageStateTime = 0;
     bool overrideTempTimer = false;
     bool overrideVoltageTimer = false;
+    bool tempBoostActive = false;
+    bool voltageBoostActive = false;
+    bool setup_done = false;
+
 
     Battery* getInstance();
 
@@ -93,7 +142,7 @@ public:
     bool setEcoPrecentVoltage(int value);
     int getEcoPrecentVoltage();
 
-    void setBoostPrecentVoltage(int boostPrecentVoltage);
+    bool setBoostPrecentVoltage(int boostPrecentVoltage);
     int getBoostPrecentVoltage();
 
     int getEcoTemp();
@@ -101,6 +150,12 @@ public:
 
     int getBoostTemp();
     bool setBoostTemp(int boostTemp);
+
+    bool activateTemperatureBoost(bool value);
+    bool getActivateTemperatureBoost();
+    
+    bool activateVoltageBoost(bool value);
+    bool getActivateVoltageBoost();
 
 /*
  *  Private methods
@@ -110,7 +165,11 @@ public:
 
 private:
     batterys batry; 
+    Settings settings;
+    Preferences preferences;
+
     static Battery* instance; 
+    
 
     int tempSensor;   // Pin for voltage reading
     int voltagePin;   // Pin for voltage reading
@@ -119,11 +178,14 @@ private:
     int greenLed;     // Pin for green LED
     int yellowLed;    // Pin for yellow LED
     int redLed;       // Pin for red LED
+    // LED blinkers
+    Blinker red;
+    Blinker green;
+    Blinker yellow;
 
     OneWire oneWire; // Create OneWire instance
     DallasTemperature dallas; // Create DallasTemperature instance
     NonBlockingDallas dallaz; // Create NonBlockingDallas instance
-    Preferences preferences; // Create Preferences instance
 
     enum VoltageState {
         LOW_VOLTAGE_WARNING,
@@ -143,18 +205,13 @@ private:
     };
 
 
-    // LED blinkers
-    Blinker red;
-    Blinker green;
-    Blinker yellow;
-
     // PID variables
     float pidInput, pidOutput, pidSetpoint, kp, ki, kd;
 
     QuickPID heaterPID;
 
     // my own User Interface struct
-    Settings settings;
+
 
 
     VoltageState getVoltageState(   int voltagePrecent, 
