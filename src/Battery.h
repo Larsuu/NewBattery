@@ -4,7 +4,6 @@
 
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include "NonBlockingDallas.h"
 #include <QuickPID.h>
 #include <Blinker.h>
 #include <Preferences.h>
@@ -27,6 +26,8 @@ struct batterys {
     uint32_t     ecoTemp;
     uint32_t     boostTemp;
     uint32_t     resistance;
+    uint32_t     capct;
+    uint32_t     chrgr;
     bool        voltBoostActive;
     bool        tempBoostActive;
 };
@@ -41,46 +42,6 @@ struct Settings {
         char    username[13];
         char    password[13];
 };
-
-
-/*
-
-// Battery callbacks
-void ecoVoltCallback(Control *sender, int value);
-void boostVoltCallback(Control *sender, int value);
-
-void ecoTempCallback(Control *sender, int type);
-void boostTempCallback(Control *sender, int type);
-
-void BoostTempSwitcerCallback(Control *sender, int type);
-void BoostVoltageSwitcerCallback(Control *sender, int type);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-*/
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 class Battery {
@@ -98,6 +59,8 @@ public:
     void loop();
     void setup();
 
+    float readTemperature();
+
     void handleBatteryControl();    // Main control logic for battery
 
     void saveSettings();
@@ -106,15 +69,12 @@ public:
     void readVoltage();
 
     float getTemperature();         // Returns the current battery temperature
-    void readTemperature();
+    
     bool isTemperatureSafe();
     int getBatteryDODprecent();
-    // void onIntervalElapsed();
 
     int getVoltageInPercentage(uint32_t milliVoltage);
     float btryToVoltage(int precent); 
-
-    static void handleIntervalElapsed(int deviceIndex, int32_t temperatureRAW); // Static callback
 
     int currentPrecentVoltage;
     int voltagePrecent, ecoPrecentVoltage, boostPrecentVoltage;
@@ -132,9 +92,10 @@ public:
     bool tempBoostActive = false;
     bool voltageBoostActive = false;
     bool setup_done = false;
+    float accurateVoltage;
+    unsigned long dallasTime = 0;
 
-
-    Battery* getInstance();
+    float accuVolts();
 
     int getNominalString();
     bool setNominalString(int size);
@@ -157,7 +118,13 @@ public:
     bool activateVoltageBoost(bool value);
     bool getActivateVoltageBoost();
 
-    int calculateChargeTime(int batteryCapacity, int chargerCurrent, int initialPercentage, int targetPercentage) {
+    bool setCharger(int chargeCurrent);
+    int getCharger();
+
+    bool setCapacity(int capacity);
+    int getCapacity();
+
+    float calculateChargeTime(int initialPercentage, int targetPercentage);
 
 /*
  *  Private methods
@@ -170,7 +137,7 @@ private:
     Settings settings;
     Preferences preferences;
 
-    static Battery* instance; 
+    // static Battery* instance; 
     
 
     int tempSensor;   // Pin for voltage reading
@@ -187,7 +154,6 @@ private:
 
     OneWire oneWire; // Create OneWire instance
     DallasTemperature dallas; // Create DallasTemperature instance
-    NonBlockingDallas dallaz; // Create NonBlockingDallas instance
 
     enum VoltageState {
         LOW_VOLTAGE_WARNING,
