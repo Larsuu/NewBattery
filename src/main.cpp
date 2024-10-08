@@ -75,12 +75,6 @@ uint16_t boostTemp, boostVolts, nameLabel, hostnameLabel, ecoVoltLabel, ecoVoltU
 uint16_t saveButton;
 uint16_t textSeriesConfig, seriesConfigNum, vertgroupswitcher, chargerTimeFeedback;
 
-
-const std::string CLEAR_LABEL_STYLE = "background-color: unset; width: 100%;";
-const std::string SWITCHER_LABEL_STYLE = "width: 25%; background-color: unset;";
-const std::string LABEL_STYLE = "font-family: serif; background-color: unset; width: 100%; text-align: left;";
-const std::string BUTTON_STYLE = "background-color: #d3d3d3; width: 20%; text-align: center; font-size: medium; font-family: serif; margin-top: 20px; margin-bottom: 20px; border-radius: 15px;";
-
 Battery batt;
 
 //Function Prototypes for ESPUI
@@ -106,15 +100,6 @@ void boostVoltageSwitcherCallback(Control *sender, int type);
 
 // Select a batterys size 
 void selectBattery(Control *sender, int type);
-
-
-// Function to apply style and optionally a callback to a control
-void applyStyle(uint16_t controlID, const std::string& style, std::function<void(Control*, int)> callback = nullptr) {
-    ESPUI.setElementStyle(controlID, style.c_str());
-    if (callback) {
-        ESPUI.addControlCallback(controlID, callback);
-    }
-}
 
 void setUpUI() {
 
@@ -201,21 +186,14 @@ void setUpUI() {
   infoLabel = ESPUI.addControl(Label, "How To Use", "Battery Assistant<br><br>How To:<br><br>For initial setup, the most important thing is to define your battery configuration. Is your battery a 7S or 16S defines how your charger is controlled.<ul><li>7S is 24V</li><li>10S is 36V</li><li>13S is 48V</li><li>16S is 60V</li><li>20S is 72V</li></ul><p>Get to know how to use this even more from the link below</p>", Peterriver, tab1, textCallback);
   ESPUI.setElementStyle(infoLabel, "font-family: serif; background-color: unset; width: 100%; text-align: left;");
   labelId = ESPUI.addControl(Label, "Uptime:", "", None, tab1);
-  ESPUI.setElementStyle(labelId, "font-family: serif; background-color: unset; width: 100%; text-align: left;");
-  ipText = ESPUI.addControl(Label, "IP", "ipAddress", ControlColor::None, tab1);
+  // ESPUI.setElementStyle(labelId, "font-family: serif; background-color: unset; width: 100%; text-align: center  ;");
+  ipText = ESPUI.addControl(Label, "IP", "ipAddress", None, tab1);
  
-
-
-
-
-
-
 
 group1      = ESPUI.addControl(Label, "Battery Settings", "", Turquoise, tab2);
               ESPUI.setElementStyle(group1, "background-color: unset; width: 100%; color: black; font-size: medium;");
 
-    
-
+  
     nameLabel =  ESPUI.addControl(Text, "Hostname ", "Veijo", Alizarin, group1, generalCallback);
                     ESPUI.setElementStyle(nameLabel, "background-color: unset; width: 50%; text-align: center; font-size: medium;");
                     ESPUI.setElementStyle(ESPUI.addControl(Label, "veijo.local", "URL:  veijo.local ", Alizarin, nameLabel), "background-color: unset; width: 100%; text-align: left;");
@@ -452,7 +430,8 @@ ESPUI.setElementStyle(saveButton, "background-color: #d3d3d3; width: 20%; text-a
     ESPUI.updateControlValue(boostVoltLabel, String(batt.btryToVoltage(batt.getBoostPrecentVoltage()), 1) + " V");
     ESPUI.updateControlValue(text10, String(batt.getCharger()));
     ESPUI.updateControlValue(text12, String(batt.getCapacity()));
-    ESPUI.updateLabel(chargerTimespan, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
+    ESPUI.updateControlValue(chargerTimeFeedback, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
+    ESPUI.updateControlValue(chargerTimespan, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
 
 
 
@@ -483,8 +462,6 @@ void generalCallback(Control *sender, int type) {
   Serial.println(sender->value);
 }
 /*
-
-
 
 
 
@@ -821,17 +798,20 @@ void loop() {
       wlanIpAddress = WiFi.localIP().toString();
       ESPUI.updateLabel(ipText, wlanIpAddress);
       ESPUI.updateLabel(ipLabel, wlanIpAddress);
-      ESPUI.updateLabel(labelId, String((millis() / 60000), 1));
+      ESPUI.updateLabel(labelId, String((millis() / 60000)));
 
       ESPUI.updateLabel(voltLabel, String(batt.getBatteryDODprecent()) + " %");
       
       ESPUI.updateLabel(tempLabel, String(batt.getTemperature(), 1) + " ℃");
 
-      ESPUI.updateLabel(chargerTimeFeedback, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 0) + " h");
+      ESPUI.updateLabel(chargerTimeFeedback, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
 
       ESPUI.updateLabel(boostVoltLabel, String(batt.btryToVoltage(batt.getBoostPrecentVoltage()), 0) + " V");
 
       ESPUI.updateLabel(quickPanelVoltage, String(batt.accuVolts(), 1) + " V");
+
+      ESPUI.updateLabel(chargerTimespan, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
+
 
       Serial.print(" loop: ");
       Serial.println(batt.accuVolts());

@@ -415,12 +415,13 @@ void Battery::readVoltage() {
         Serial.print("This battery");
         Serial.println(batry.size);
         delay(10);
-        batry.voltageInPrecent =  constrain(getVoltageInPercentage(mVolts), 50, 100);
+        batry.voltageInPrecent =  getVoltageInPercentage(mVolts);
         delay(10);
         Serial.print("Voltage in precent: ");   
         delay(10);
+        Serial.println(batry.voltageInPrecent);
         int Volts = mVolts / 1000;
-        accurateVoltage = constrain((Volts), 25, 100);
+        accurateVoltage = Volts;
         
     } else {
         accurateVoltage = 0; // Set the accurate voltage to 0 in case of reading error
@@ -463,17 +464,22 @@ float Battery::btryToVoltage(int precent) {
 int Battery::getVoltageInPercentage(uint32_t milliVoltage) {
     uint32_t minVoltage = 3000;  // Minimum voltage in millivolts (3V)
     uint32_t maxVoltage = 4200;  // Maximum voltage in millivolts (4.2V)
-
+    Serial.print("MilliVoltage:  ");
+    Serial.println(milliVoltage);
     milliVoltage = constrain(milliVoltage, 25000, 100000);
-    if (milliVoltage < minVoltage * batry.size) {
-        return 1;  // Below minimum voltage, 0% usable area
-    } else if (milliVoltage > maxVoltage * batry.size) {
+    if (milliVoltage < (minVoltage * batry.size)) {
+        return 0;  // Below minimum voltage, 0% usable area
+        Serial.println("Below minimum voltage");
+    } else if (milliVoltage > (maxVoltage * batry.size)) {
         return 100;  // Above maximum voltage, 100% usable area
+        Serial.println("Above maximum voltage");
     } else {
         uint32_t voltageRange = (maxVoltage - minVoltage) * batry.size;
-        uint32_t voltageDifference = milliVoltage - minVoltage * batry.size;
-        uint32_t result = (voltageDifference / voltageRange) * 100 ;  // Calculate percentage of usable area
-        // Serial.print("Result:  ");
+        uint32_t voltageDifference = milliVoltage - ( minVoltage * batry.size) ;
+        float result = ((float)voltageDifference / (float)voltageRange) * 100 ;  // Calculate percentage of usable area
+        Serial.print("Voltage difference:  ");
+        Serial.println(voltageDifference);
+        Serial.print("Result:  ");
         Serial.println(result);
         return result;
     }
