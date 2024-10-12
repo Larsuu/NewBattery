@@ -8,6 +8,7 @@
 #include <Blinker.h>
 #include <Preferences.h>
 #include <ESPUI.h>
+#include <esp_adc_cal.h>
 
 #define V_REF 1121
 #define MOVING_AVG_SIZE 5
@@ -19,7 +20,11 @@
 struct batterys {
 
     uint32_t     size;
+    uint32_t     sizeApprx;
+    uint32_t     mV_max;
+    uint32_t     mV_min;
     uint32_t     temperature;
+    uint32_t     milliVoltage;
     uint32_t     voltageInPrecent;
     uint32_t     ecoVoltPrecent;
     uint32_t     boostVoltPrecent;
@@ -47,6 +52,8 @@ struct Settings {
 class Battery {
 public:
 
+    static batterys batry;
+
     Battery(int tempSensor = 33, 
             int voltagePin = 39, 
             int heaterPin = 32, 
@@ -66,8 +73,9 @@ public:
     void saveSettings();
     void loadSettings();
 
-    void readVoltage();
+    esp_adc_cal_characteristics_t characteristics;
 
+    
     float getTemperature();         // Returns the current battery temperature
     
     bool isTemperatureSafe();
@@ -125,6 +133,19 @@ public:
     int getCapacity();
 
     float calculateChargeTime(int initialPercentage, int targetPercentage);
+    void  readVoltage(unsigned long intervalSeconds);
+
+    uint32_t determineBatterySeries(uint32_t measuredVoltage_mV);
+    float getCurrentVoltage();
+    int getBatteryApprxSize();
+
+        // Global variables
+    u_int32_t MOVAreadings[MOVING_AVG_SIZE] = {0};
+    u_int32_t varianceReadings[MOVING_AVG_SIZE] = {0};
+    int MOVAIndex = 0;
+    u_int32_t MOVASum = 0;
+    bool firstRun = true;
+    unsigned long voltageMillis = 0;
 
 /*
  *  Private methods
@@ -132,14 +153,11 @@ public:
  * These are the private methods that are used in the battery.cpp file
  */ 
 
-private:
-    batterys batry; 
+private: 
     Settings settings;
     Preferences preferences;
-
-    // static Battery* instance; 
     
-
+    // static Battery* instance; 
     int tempSensor;   // Pin for voltage reading
     int voltagePin;   // Pin for voltage reading
     int heaterPin;    // Pin for controlling the heater
@@ -151,7 +169,6 @@ private:
     Blinker red;
     Blinker green;
     Blinker yellow;
-
     OneWire oneWire; // Create OneWire instance
     DallasTemperature dallas; // Create DallasTemperature instance
 
@@ -198,12 +215,6 @@ private:
     // these are the final countdown temperature!!
     float currentTemperature;
     bool temperatureFailsafe;
-
-    // ADC for voltage reading
-    u_int32_t MOVAreadings[MOVING_AVG_SIZE];
-    int MOVAIndex = 0;
-    u_int32_t MOVASum = 0;
-    u_int32_t voltage = 0;
 
 };
 

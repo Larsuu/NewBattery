@@ -3,7 +3,9 @@
 #include <Preferences.h>
 #include <OneWire.h>
 #include <ESPUI.h>
+#include <PubSubClient.h>
 
+batterys Battery::batry;
 
 
 Battery::Battery(   int tempSensor, 
@@ -21,15 +23,14 @@ Battery::Battery(   int tempSensor,
                     heaterPID(&pidInput, &pidOutput, &pidSetpoint, kp, ki, kd, QuickPID::Action::direct),
                     red(redLed),
                     yellow(yellowLed),
-                    green(greenLed),
-                    batry() 
+                    green(greenLed)
                 {
                     heaterPID.SetTunings(kp, ki, kd); //apply PID gains
                     heaterPID.SetMode(QuickPID::Control::automatic);   
                     heaterPID.SetOutputLimits(0, 255);
                     heaterPID.SetSampleTimeUs(1000 * 1000); // 1 second.
                     heaterPID.SetAntiWindupMode(QuickPID::iAwMode::iAwClamp); 
-                    MOVAIndex = 0;
+
 
 }
 
@@ -50,12 +51,18 @@ void Battery::setup() {
     yellow.start();
     green.setDelay(100);
     yellow.setDelay(100);
+
+
+    adc1_config_width(ADC_WIDTH_12Bit);
+    adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
+    esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH_BIT_12, V_REF, &characteristics);
 }
 
 void Battery::loop() {
 
     heaterPID.Compute();
     handleBatteryControl();
+    readVoltage(5);                // read voltage every X seconds
 
     // redLed.blink();
     green.blink();   
@@ -68,15 +75,12 @@ void Battery::loop() {
             Serial.println("Error: Could not read temperature data");
         } else {
             batry.temperature = temperature;
-            Serial.print("Temperature: ");
-            Serial.println(batry.temperature);
+            // Serial.print("Temp: ");
+            // Serial.println(batry.temperature);
         }
     }
 }
 /*
-
-
-
 
 
 DAllas temp sensor function
@@ -132,12 +136,12 @@ void Battery::handleBatteryControl() {
             }
         lastVoltageStateTime = currentMillis;
         overrideVoltageTimer = false;
-        readVoltage();    
-        Serial.println("Voltage Measurement loop");
-        Serial.print(voltagePrecent);
-        Serial.print(ecoPrecentVoltage);
-        Serial.print(boostPrecentVoltage);
-        Serial.println("  ");
+         
+        // Serial.println("Voltage Measurement loop");
+        // Serial.print(voltagePrecent);
+        // Serial.print(ecoPrecentVoltage);
+        // Serial.print(boostPrecentVoltage);
+        // Serial.println("  ");
 
     }
 
@@ -178,11 +182,11 @@ void Battery::handleBatteryControl() {
         lastTempStateTime = currentMillis;
         overrideTempTimer = false;
         // readTemperature();
-        Serial.println("Temperature Measurement loop");
-        Serial.print(batry.temperature);
-        Serial.print(batry.boostTemp);
-        Serial.print(batry.ecoTemp);
-        Serial.println("  ");
+        // Serial.println("Temperature Measurement loop");
+        // Serial.print(batry.temperature);
+        // Serial.print(batry.boostTemp);
+        // Serial.print(batry.ecoTemp);
+        // Serial.println("  ");
 
 
     }
@@ -375,6 +379,84 @@ void Battery::loadSettings() {
             to compare reading in the previous reading. Like Moving avarage
             but in a array. And this would lead into actionable data.
 */
+
+void Battery::readVoltage(unsigned long intervalSeconds) {
+    unsigned long currentMillis = millis();
+    unsigned long intervalMillis = intervalSeconds * 1000;
+
+    if (currentMillis - voltageMillis >= intervalMillis) {
+        voltageMillis = currentMillis;
+
+        u_int32_t voltVal = adc1_get_raw(ADC_CHANNEL);
+        u_int32_t calibratedVoltage = esp_adc_cal_raw_to_voltage(voltVal, &characteristics) * 30.81;
+
+        if (firstRun) {
+            // Initialize all readings to the first calibrated voltage for a smooth start
+            for (int i = 0; i < MOVING_AVG_SIZE; i++) {
+                MOVAreadings[i] = calibratedVoltage;
+            }
+            firstRun = false;
+        }
+
+        // Update the moving average array
+        MOVAreadings[MOVAIndex] = calibratedVoltage;
+        MOVAIndex = (MOVAIndex + 1) % MOVING_AVG_SIZE;
+
+        // Calculate the moving average
+        MOVASum = 0;
+        for (int i = 0; i < MOVING_AVG_SIZE; i++) {
+            MOVASum += MOVAreadings[i];
+        }
+        u_int32_t movingAverage = MOVASum / MOVING_AVG_SIZE;
+
+        // Calculate variance percentage
+        u_int32_t varianceSum = 0;
+        for (int i = 0; i < MOVING_AVG_SIZE; i++) {
+            varianceSum += abs((int32_t)MOVAreadings[i] - (int32_t)movingAverage);
+        }
+        Serial.print("VarianceSum: ");
+        Serial.println(varianceSum);
+
+        u_int32_t variance = (varianceSum * 100) / (MOVING_AVG_SIZE * movingAverage);
+
+        // Store variance in the secondary array
+        varianceReadings[MOVAIndex] = variance;
+
+        // Print debug information
+        // Serial.print("MOVASum: ");
+        // Serial.println(MOVASum);
+        Serial.print("Variance: ");
+        Serial.println(variance);
+
+        // Check if the moving average is within the valid range
+        if (movingAverage > 5000 && movingAverage < 100000) {
+            // Update battery size approximation if the new series is larger
+            int newSeries = Battery::determineBatterySeries(movingAverage);
+            if (batry.sizeApprx < newSeries) {
+                batry.sizeApprx = newSeries;
+                Serial.print("Battery size approximated to: ");
+                Serial.println(batry.sizeApprx);
+            }
+
+            // Update voltage and accurate voltage
+            batry.milliVoltage = movingAverage;
+
+            // Update battery voltage in percentage
+            batry.voltageInPrecent = getVoltageInPercentage(movingAverage);
+        } else {
+            accurateVoltage = 0; // Set the accurate voltage to 0 in case of reading error
+            Serial.println("Voltage reading error");
+        }
+    }
+}
+
+
+
+
+
+
+
+/*
 void Battery::readVoltage() {
     adc1_config_width(ADC_WIDTH_12Bit);
     adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
@@ -428,6 +510,9 @@ void Battery::readVoltage() {
         Serial.println("Voltage reading error");
     }
 }
+*/
+
+
 /*
 
 
@@ -448,24 +533,19 @@ float Battery::btryToVoltage(int precent) {
         return milliVolts / 1000;
     }
     else {
-    Serial.print("Result:  ");
-    Serial.print(batry.size);
-    Serial.print("  ");
-    Serial.print(precent);
-    Serial.print("  ");
-    Serial.print("btrysize:  ");
+
     float volttis = ((batry.size * 3) + (batry.size * (float)1.2 * (precent / 100)));
-    Serial.print("  ");
+    Serial.print("btryTolVoltage-Fail:  ");
     Serial.println(volttis);
-    return 1;
+    return -1;
     }
 }
 
 int Battery::getVoltageInPercentage(uint32_t milliVoltage) {
     uint32_t minVoltage = 3000;  // Minimum voltage in millivolts (3V)
     uint32_t maxVoltage = 4200;  // Maximum voltage in millivolts (4.2V)
-    Serial.print("MilliVoltage:  ");
-    Serial.println(milliVoltage);
+    // Serial.print("MilliVoltage:  ");
+    // Serial.println(milliVoltage);
     milliVoltage = constrain(milliVoltage, 25000, 100000);
     if (milliVoltage < (minVoltage * batry.size)) {
         return 0;  // Below minimum voltage, 0% usable area
@@ -477,17 +557,17 @@ int Battery::getVoltageInPercentage(uint32_t milliVoltage) {
         uint32_t voltageRange = (maxVoltage - minVoltage) * batry.size;
         uint32_t voltageDifference = milliVoltage - ( minVoltage * batry.size) ;
         float result = ((float)voltageDifference / (float)voltageRange) * 100 ;  // Calculate percentage of usable area
-        Serial.print("Voltage difference:  ");
-        Serial.println(voltageDifference);
-        Serial.print("Result:  ");
-        Serial.println(result);
+        // Serial.print("Voltage left:  ");
+        // Serial.println(voltageDifference);
+        // Serial.print("Result:  ");
+        // Serial.println(result);
         return result;
     }
 }
 
 int Battery::getBatteryDODprecent() {
-    Serial.print("Result:  ");
-    Serial.println(batry.voltageInPrecent);
+    // Serial.print("Result:  ");
+    // Serial.println(batry.voltageInPrecent);
     return batry.voltageInPrecent;
 }
 /*
@@ -647,7 +727,7 @@ bool Battery::activateTemperatureBoost(bool tempBoostActive) {
         return true;
     }
     else if(tempBoostActive && batry.tempBoostActive) {
-        Serial.println("Temperature boost is already active -> toggle to deactivate");
+        // Serial.println("Temperature boost is already active -> toggle to deactivate");
         batry.tempBoostActive = false;
         return true;
     }
@@ -668,7 +748,7 @@ bool Battery::activateVoltageBoost(bool voltBoostActive) {
     }
     else if (voltBoostActive && batry.voltBoostActive) {
         batry.voltBoostActive = false;
-        Serial.println("Voltage boost is already active -> toggle to deactivate");
+        // Serial.println("Voltage boost is already active -> toggle to deactivate");
         return true;
     }
     else return false;
@@ -685,11 +765,11 @@ bool Battery::getActivateVoltageBoost() {
 float Battery::calculateChargeTime(int initialPercentage, int targetPercentage) {
     // Calculate the charge needed in Ah
     float chargeNeeded = batry.capct * ((targetPercentage - initialPercentage) / (float)100.0);
-    Serial.println(chargeNeeded);
+    // Serial.println(chargeNeeded);
     // Calculate the time required in minutes
     float timeRequired = (chargeNeeded / getCharger());
-    Serial.print("timeRequired: ");
-    Serial.println(timeRequired);
+    // Serial.print("timeRequired: ");
+    // Serial.println(timeRequired);
     return timeRequired;
 }
 
@@ -734,4 +814,32 @@ int Battery::getCapacity()  {
 /**/
 float Battery::accuVolts() {
     return accurateVoltage;
+}
+
+uint32_t Battery::determineBatterySeries(uint32_t measuredVoltage_mV) {
+    const uint32_t voltagePerCell_mV = 4200; // 4.2V on 4200 millivolttia
+    const uint32_t toleranceMultiplier = 5;  // 5% marginaali
+    const uint32_t toleranceDivisor = 100;   // Jaetaan sadalla 5% marginaalin saamiseksi
+
+    // Lasketaan alustava sarja
+    uint32_t series = measuredVoltage_mV / voltagePerCell_mV;
+    uint32_t measuredSeries = series;
+
+    // Lasketaan jäännös
+    uint32_t remainder_mV = measuredVoltage_mV % voltagePerCell_mV; // Tämä on "ylijäämä" millivolteissa
+
+    // Tarkistetaan, ylittääkö jäännös 5% kennojännitteestä
+    if (remainder_mV * toleranceDivisor > voltagePerCell_mV * toleranceMultiplier) {
+        return measuredSeries + 1; // Siirrytään seuraavaan sarjaan
+    } else {
+        return measuredSeries; // Pysytään samassa sarjassa
+    }
+}
+
+float Battery::getCurrentVoltage() {
+    return batry.milliVoltage / 1000;
+}
+
+int Battery::getBatteryApprxSize() {
+    return batry.sizeApprx;
 }

@@ -5,6 +5,8 @@
 #include <OneWire.h>
 #include <string>
 #include <functional>
+#include <PubSubClient.h>
+#include <WiFi.h>
 
 #if defined(ESP32)
 #include <WiFi.h>
@@ -43,7 +45,7 @@
 #define HOSTNAME "veijo"
 #define FORCE_USE_HOTSPOT 0
 
-
+Battery batt;
 int tempest;
 int batteryInSeries;
 unsigned int mittausmillit = 0;  // battery voltage and heat reading millis()
@@ -75,7 +77,7 @@ uint16_t boostTemp, boostVolts, nameLabel, hostnameLabel, ecoVoltLabel, ecoVoltU
 uint16_t saveButton;
 uint16_t textSeriesConfig, seriesConfigNum, vertgroupswitcher, chargerTimeFeedback;
 
-Battery batt;
+uint16_t autoSeriesDet, autoSeriesNum;
 
 //Function Prototypes for ESPUI
 void connectWifi();
@@ -97,9 +99,7 @@ void boostTempCallback(Control *sender, int type);
 // Battery callbacks for Switcher input  --> Boost & Temp
 void boostTempSwitcherCallback(Control *sender, int type);
 void boostVoltageSwitcherCallback(Control *sender, int type);
-
-// Select a batterys size 
-void selectBattery(Control *sender, int type);
+void selectBattery(Control* sender, int type);
 
 void setUpUI() {
 
@@ -119,6 +119,20 @@ void setUpUI() {
    * This tab contains all the basic ESPUI controls, and shows how to read and update them at runtime.
    *-----------------------------------------------------------------------------------------------------------*/
   
+
+/*
+This into the setup page:
+
+    String battEmpty = "<br><br>      Empty             0%   =   " + String((sender->value.toInt() * (float)3 ), 1);
+    String battNom   = "    <br>      Nominal        50%   =   " + String((sender->value.toInt() * (float)3.7 ), 1);
+    String battFull =  "    <br>      Full              100%   =  " +  String((sender->value.toInt() * (float)4.2 ), 1);      
+    String allBatt = battEmpty + battNom + battFull;
+    ESPUI.updateLabel(battInfo, allBatt);
+
+
+*/
+
+
 
 
   
@@ -207,7 +221,7 @@ text8 = ESPUI.addControl(Label, "Chrgr", "Battery Charger Info", Emerald, group1
 ESPUI.setElementStyle(text8, "text-align: left; font-size: small; font-family: serif; width: 100%; background-color: unset; color: black; margin-top: 20px; border-bottom: 1px solid darkslategray; padding-bottom: 5px;");
 
 
-text9          =  ESPUI.addControl(Label, "Battery Charger", "Charger (A)", None, group1);    
+text9          =  ESPUI.addControl(Label, "Battery Charger", "Charger", None, group1);    
                   ESPUI.setElementStyle(text9, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;");
 
 
@@ -220,7 +234,7 @@ text10 =      ESPUI.addControl(Number, "Charger Settings ", "2", Emerald, group1
 
 
 
-text11          = ESPUI.addControl(Label, "Battery Capacity", "Charger (Ah)", None, group1);    
+text11          = ESPUI.addControl(Label, "Battery Capacity", "Capacity", None, group1);    
                   ESPUI.setElementStyle(text11, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;");
 
 
@@ -236,6 +250,17 @@ text12 =      ESPUI.addControl(Number, "Capacity Settings ", "2", Emerald, group
 text7 = ESPUI.addControl(Label, "Tempsis", "Batterys Nominal Value", Emerald, group1);
 ESPUI.setElementStyle(text7, "text-align: left; font-size: small; font-family: serif; width: 100%; background-color: unset; color: black; margin-top: 20px; border-bottom: 1px solid darkslategray; padding-bottom: 5px;");
 
+autoSeriesDet = ESPUI.addControl(Label, "Battery Series Configuration", "Autodetect", None, group1);
+ESPUI.setElementStyle(autoSeriesDet, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;");
+
+autoSeriesNum = ESPUI.addControl(Number, "Series Configuration", "7", Emerald, group1, selectBattery);
+ESPUI.addControl(Min, "", "7", None, autoSeriesNum);
+ESPUI.addControl(Max, "", "21", None, autoSeriesNum);
+ESPUI.setElementStyle(autoSeriesNum, "background-color: transparent; width: 25%; border: none; text-align: center; ; -webkit-appearance: none; -moz-appearance: textfield;");
+
+ESPUI.setElementStyle(ESPUI.addControl(Label, "C", "Strings", Emerald, group1), "font-family: serif; width: 25%; text-align: center; background-color: unset;color: darkslategray;");
+
+
 
 // Add Battery Series Configuration
 textSeriesConfig = ESPUI.addControl(Label, "Battery Series Configuration", "Series Config", None, group1);
@@ -246,7 +271,7 @@ ESPUI.addControl(Min, "", "7", None, seriesConfigNum);
 ESPUI.addControl(Max, "", "21", None, seriesConfigNum);
 ESPUI.setElementStyle(seriesConfigNum, "background-color: transparent; width: 25%; border: none; text-align: center; ; -webkit-appearance: none; -moz-appearance: textfield;");
 
- ESPUI.setElementStyle(ESPUI.addControl(Label, "C", "Strings", Emerald, group1), "font-family: serif; width: 25%; text-align: center; background-color: unset;color: darkslategray;");
+ESPUI.setElementStyle(ESPUI.addControl(Label, "C", "Strings", Emerald, group1), "font-family: serif; width: 25%; text-align: center; background-color: unset;color: darkslategray;");
 
 
 
@@ -480,14 +505,14 @@ void ecoVoltCallback(Control* sender, int type) {
 		{
 			if(batt.setEcoPrecentVoltage(sender->value.toInt()))
         {
-          ESPUI.updateLabel(ecoVoltLabel, String(batt.btryToVoltage(sender->value.toInt()), 2));
+          ESPUI.updateLabel(ecoVoltLabel, String(batt.btryToVoltage(sender->value.toInt()), 1));
 			   	Serial.print("Ecomode Voltage set to: ");
           Serial.print(batt.getEcoPrecentVoltage());
           Serial.println(" Precent");
         }
       else
       {
-          ESPUI.updateLabel(ecoVoltLabel, String(batt.getEcoPrecentVoltage(), 2));
+          ESPUI.updateLabel(ecoVoltLabel, String(batt.getEcoPrecentVoltage(), 1));
 			   	Serial.print("Ecomode Voltage set to: ");
           Serial.print(batt.getEcoPrecentVoltage());
           Serial.println(" Precent");
@@ -500,13 +525,10 @@ void ecoVoltCallback(Control* sender, int type) {
     }
   }
   // ESPUI.updateLabel(boostVoltLabel, String(batt.btryToVoltage(sender->value.toInt()), 2));
-
-
-
-
   // ESPUI.updateLabel(ecoVoltLabel, String(batt.btryToVoltage(sender->value.toInt()), 2));
-
 }
+
+
 void selectBattery(Control* sender, int type) {
 	int current = batt.getNominalString();
 
@@ -562,6 +584,8 @@ void selectBattery(Control* sender, int type) {
   Serial.println(sender->value);
 
 }
+
+
 /*
 
 
@@ -577,7 +601,7 @@ void boostVoltCallback(Control* sender, int type) {
 
 
     switch (type) {
-    case 9:
+    case 9:             // When the button is pressed, espui button press type = 9. We would then check with the following if/else
 		if(sender->value.toInt() != 0)
 		{
 			if(batt.setBoostPrecentVoltage(sender->value.toInt()))
@@ -752,8 +776,102 @@ void paramCallback(Control* sender, int type, int param)
     Serial.println(param);
 }
 
+const char* mqtt_server = "192.168.1.150";
+const int mqtt_port = 1883;
+const char* mqtt_user = "mosku";
+const char* mqtt_password = "kakkapylly123";
+const char* ssid = "Olohuone";
+const char* password = "10209997";
+
+unsigned long lastMsg = 0;
+const long interval = 60000; // 1 minute
+unsigned long mqttmillis = 0;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+
+
+void reconnect() {
+    while (!client.connected()) {
+        Serial.print("Attempting MQTT connection...");
+        if (client.connect("ESP32Client", mqtt_user, mqtt_password)) {
+            Serial.println("connected");
+        } else {
+            Serial.print("failed, rc=");
+            Serial.print(client.state());
+            Serial.println(" try again in 5 seconds");
+        }
+    }
+}
+
+
+void publishMessage() {
+
+    if (!client.connected()) {
+        reconnect();
+    }
+
+
+char buffer[16];
+
+sprintf(buffer, "%u", Battery::batry.size);
+client.publish("battery/test/size", buffer);
+
+sprintf(buffer, "%u", Battery::batry.sizeApprx);
+client.publish("battery/test/sizeApprx", buffer);
+
+sprintf(buffer, "%u", Battery::batry.mV_max);
+client.publish("battery/test/mV_max", buffer);
+
+sprintf(buffer, "%u", Battery::batry.mV_min);
+client.publish("battery/test/mV_min", buffer);
+
+sprintf(buffer, "%u", Battery::batry.temperature);
+client.publish("battery/test/temperature", buffer);
+
+sprintf(buffer, "%u", Battery::batry.milliVoltage);
+client.publish("battery/test/milliVoltage", buffer);
+
+sprintf(buffer, "%u", Battery::batry.voltageInPrecent);
+client.publish("battery/test/voltageInPrecent", buffer);
+
+sprintf(buffer, "%u", Battery::batry.ecoVoltPrecent);
+client.publish("battery/test/ecoVoltPrecent", buffer);
+
+sprintf(buffer, "%u", Battery::batry.boostVoltPrecent);
+client.publish("battery/test/boostVoltPrecent", buffer);
+
+sprintf(buffer, "%u", Battery::batry.ecoTemp);
+client.publish("battery/test/ecoTemp", buffer);
+
+sprintf(buffer, "%u", Battery::batry.boostTemp);
+client.publish("battery/test/boostTemp", buffer);
+
+sprintf(buffer, "%u", Battery::batry.resistance);
+client.publish("battery/test/resistance", buffer);
+
+sprintf(buffer, "%u", Battery::batry.capct);
+client.publish("battery/test/capct", buffer);
+
+sprintf(buffer, "%u", Battery::batry.chrgr);
+client.publish("battery/test/chrgr", buffer);
+
+client.publish("battery/test/voltBoostActive", Battery::batry.voltBoostActive ? "true" : "false");
+client.publish("battery/test/tempBoostActive", Battery::batry.tempBoostActive ? "true" : "false");
+
+client.disconnect();
+Serial.println("MQTT disconnected");
+
+
+
+}
+
+
+
 void setup() {
   
+
     batt.setup();
     randomSeed(0);
 	  Serial.begin(115200);
@@ -784,6 +902,8 @@ void setup() {
 	setUpUI();
 
 
+  client.setServer(mqtt_server, mqtt_port);
+
 }   
 
 void loop() {
@@ -808,15 +928,19 @@ void loop() {
 
       ESPUI.updateLabel(boostVoltLabel, String(batt.btryToVoltage(batt.getBoostPrecentVoltage()), 0) + " V");
 
-      ESPUI.updateLabel(quickPanelVoltage, String(batt.accuVolts(), 1) + " V");
+      ESPUI.updateLabel(quickPanelVoltage, String(batt.getCurrentVoltage(), 1) + " V");
 
       ESPUI.updateLabel(chargerTimespan, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
 
+      ESPUI.updateLabel(autoSeriesNum, String(batt.getBatteryApprxSize()));
+      // Serial.print(" loop: ");
+      // Serial.println(batt.accuVolts());
+    }
 
-      Serial.print(" loop: ");
-      Serial.println(batt.accuVolts());
 
-
+  if (millis() - lastMsg > interval) {
+        lastMsg = millis();
+        publishMessage();
     }
 
 }
