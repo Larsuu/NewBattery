@@ -17,10 +17,16 @@
 #define ADC_CHANNEL ADC1_CHANNEL_3
 #define ADC_ATTEN ADC_ATTEN_DB_11
 
+#define PWM_CHANNEL 4
+#define PWM_FREQ 1000
+#define PWM_RESOLUTION 8
+
+
 struct batterys {
 
     uint32_t     size;
     uint32_t     sizeApprx;
+    uint32_t     wantedTemp;
     uint32_t     mV_max;
     uint32_t     mV_min;
     uint32_t     temperature;
@@ -147,6 +153,8 @@ public:
     bool firstRun = true;
     unsigned long voltageMillis = 0;
 
+    void charger(bool state);
+
 /*
  *  Private methods
  *
@@ -156,6 +164,8 @@ public:
 private: 
     Settings settings;
     Preferences preferences;
+
+
     
     // static Battery* instance; 
     int tempSensor;   // Pin for voltage reading
@@ -165,6 +175,9 @@ private:
     int greenLed;     // Pin for green LED
     int yellowLed;    // Pin for yellow LED
     int redLed;       // Pin for red LED
+    float currentTemperature;  // ??
+    bool temperatureFailsafe;   // ??
+
     // LED blinkers
     Blinker red;
     Blinker green;
@@ -173,6 +186,7 @@ private:
     DallasTemperature dallas; // Create DallasTemperature instance
 
     enum VoltageState {
+        LAST_RESORT,
         LOW_VOLTAGE_WARNING,
         PROTECTED,
         ECONOMY,
@@ -192,8 +206,13 @@ private:
 
     // PID variables
     float pidInput, pidOutput, pidSetpoint, kp, ki, kd;
+    float currentTemp, wantedTemp;
 
     QuickPID heaterPID;
+    void updateHeaterPID();
+
+    void controlHeaterPWM(uint8_t dutycycle);
+    /// void controlCharger(bool state);
 
     // my own User Interface struct
 
@@ -206,15 +225,12 @@ private:
     // getTempState
     TempState getTempState(         float temperature, 
                                     int boostTemp, 
-                                    int ecoTemp,
-                                    bool boostActive);
+                                    int ecoTemp);
 
     // these are the final countdown voltage!! 
     uint32_t currentMilliVoltage;
 
     // these are the final countdown temperature!!
-    float currentTemperature;
-    bool temperatureFailsafe;
 
 };
 
