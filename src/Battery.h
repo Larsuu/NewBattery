@@ -21,8 +21,6 @@
 #define PWM_CHANNEL 4
 #define PWM_FREQ 1000
 #define PWM_RESOLUTION 8
-#define LOG_SIZE 5
-
 
 struct batterys {
 
@@ -44,7 +42,23 @@ struct batterys {
     uint32_t     chrgr;
     bool        voltBoostActive;
     bool        tempBoostActive;
-};
+    };
+
+
+    struct logEntry {
+        int voltageState;
+        int tempState;
+        uint32_t timestamps;
+    };
+
+    #define LOG_SIZE 15
+
+    struct statesLog {
+        logEntry entries[LOG_SIZE];
+        int index = 0;
+    };
+
+    extern statesLog batteryLog;
 
 struct Settings {
         bool    httpAccess;
@@ -62,6 +76,10 @@ class Battery {
 public:
 
     static batterys batry;
+    // static statesLog batteryLog;
+    // LogEntry entry;
+    // static LogEntry entry;
+
     Preferences preferences;
 
     Battery(int tempSensor = 33, 
@@ -77,6 +95,8 @@ public:
     void setup();
 
     float readTemperature();
+
+    void printLog();
 
     void handleBatteryControl();    // Main control logic for battery
 
@@ -165,6 +185,8 @@ public:
 
 
 
+
+
 /*
  *  Private methods
  *
@@ -172,6 +194,28 @@ public:
  */ 
 
 private: 
+
+
+    enum VoltageState {
+        LAST_RESORT             =   0,
+        LOW_VOLTAGE_WARNING     =   1,  
+        PROTECTED               =   2,
+        ECONOMY                 =   3,
+        BOOST                   =   4,  
+        VBOOST_RESET            =   5   
+    };
+
+    enum TempState {
+        SUBZERO                 =  0,
+        ECO_TEMP                =  1,
+        BOOST_TEMP              =  2,
+        OVER_TEMP               =  3,
+        TEMP_WARNING            =  4,
+        TBOOST_RESET            =  5
+    };
+
+
+
     Settings settings;
     
     // static Battery* instance; 
@@ -192,23 +236,7 @@ private:
     OneWire oneWire; // Create OneWire instance
     DallasTemperature dallas; // Create DallasTemperature instance
 
-    enum VoltageState {
-        LAST_RESORT,
-        LOW_VOLTAGE_WARNING,
-        PROTECTED,
-        ECONOMY,
-        BOOST,
-        VBOOST_RESET
-    };
-
-    enum TempState {
-        SUBZERO,
-        ECO_TEMP,
-        BOOST_TEMP,
-        OVER_TEMP,
-        TEMP_WARNING,
-        TBOOST_RESET
-    };
+   
 
 
     // PID variables
@@ -223,7 +251,8 @@ private:
 
     // my own User Interface struct
 
-
+    void addLogEntry(VoltageState vState, TempState tState);
+    
 
     VoltageState getVoltageState(   int voltagePrecent, 
                                     int ecoPrecentVoltage, 

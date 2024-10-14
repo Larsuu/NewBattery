@@ -7,6 +7,8 @@
 
 batterys Battery::batry;
 
+statesLog batteryLog;
+
 
 Battery::Battery(   int tempSensor, 
                     int voltagePin, 
@@ -48,6 +50,7 @@ void Battery::setup() {
     yellow.start();
     green.setDelay(100);
     yellow.setDelay(100);
+
 
     // lets have the battery not start heating during the startup.
     heaterPID.SetMode(QuickPID::Control::manual);
@@ -125,6 +128,31 @@ float Battery::readTemperature() {
     dallas.requestTemperatures();
     return dallas.getTempCByIndex(0);
 }
+
+void Battery::addLogEntry(VoltageState vState, TempState tState) {
+    logEntry entry;
+    entry.voltageState = static_cast<int>(vState);
+    entry.tempState = static_cast<int>(tState);
+    entry.timestamps = millis();
+
+    batteryLog.entries[batteryLog.index] = entry;
+    batteryLog.index = (batteryLog.index + 1) % LOG_SIZE;
+}
+
+void Battery::printLog() {
+    Serial.println("Log Entries:");
+    for (int i = 0; i < LOG_SIZE; i++) {
+        int index = (batteryLog.index + i) % LOG_SIZE;
+        logEntry entry = batteryLog.entries[index];
+        Serial.print("Timestamp: ");
+        Serial.print(entry.timestamps);
+        Serial.print(", Voltage State: ");
+        Serial.print(entry.voltageState);
+        Serial.print(", Temp State: ");
+        Serial.println(entry.tempState);
+    }
+}
+
 
 
 void Battery::handleBatteryControl() {
@@ -268,6 +296,7 @@ void Battery::handleBatteryControl() {
                 break;
         }
 
+        addLogEntry(vState, tState);
         lastVoltageStateTime = currentMillis;
 
     }
@@ -354,9 +383,6 @@ void Battery::saveSettings() {
     preferences.putUInt("resistance",   constrain(batry.resistance, 1, 255));
     preferences.putUInt("capct",        constrain(batry.capct, 2, 255));
     preferences.putUInt("chrgr",        constrain(batry.chrgr, 1, 5));
-
-
-
 
 /*
     if(!setup_done) {
