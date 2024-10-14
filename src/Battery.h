@@ -9,6 +9,7 @@
 #include <Preferences.h>
 #include <ESPUI.h>
 #include <esp_adc_cal.h>
+#include <ArduinoJson.h>
 
 #define V_REF 1121
 #define MOVING_AVG_SIZE 5
@@ -20,10 +21,12 @@
 #define PWM_CHANNEL 4
 #define PWM_FREQ 1000
 #define PWM_RESOLUTION 8
+#define LOG_SIZE 5
 
 
 struct batterys {
 
+    char         myname[13];
     uint32_t     size;
     uint32_t     sizeApprx;
     uint32_t     wantedTemp;
@@ -59,6 +62,7 @@ class Battery {
 public:
 
     static batterys batry;
+    Preferences preferences;
 
     Battery(int tempSensor = 33, 
             int voltagePin = 39, 
@@ -155,6 +159,12 @@ public:
 
     void charger(bool state);
 
+    void saveHostname(const char* hostname);
+    void loadHostname();
+    void updateHostname(const char* newHostname);
+
+
+
 /*
  *  Private methods
  *
@@ -163,9 +173,6 @@ public:
 
 private: 
     Settings settings;
-    Preferences preferences;
-
-
     
     // static Battery* instance; 
     int tempSensor;   // Pin for voltage reading

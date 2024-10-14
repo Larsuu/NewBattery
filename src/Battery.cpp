@@ -142,6 +142,7 @@ void Battery::handleBatteryControl() {
                     digitalWrite(redLed, LOW);  // inverted.
                     tState = getTempState(batry.temperature, 3, 2);                             // lets lower the target for temperature        
                     if(tState != SUBZERO && tState != TEMP_WARNING) charger(true);               // lets enable the charger unless subzero temp
+              
                 break;
             case LOW_VOLTAGE_WARNING:
 
@@ -879,4 +880,25 @@ void Battery::charger(bool state) {
     } else {
         digitalWrite(chargerPin, LOW);
     }
+}
+
+void Battery::saveHostname(const char* hostname) {
+    preferences.begin("batry", false);
+    preferences.putString("myname", hostname);
+    preferences.end();
+    strncpy(batry.myname, hostname, sizeof(batry.myname) - 1);
+    batry.myname[sizeof(batry.myname) - 1] = '\0'; // Ensure null-termination
+}
+
+void Battery::loadHostname() {
+    preferences.begin("batry", true);
+    String hostname = preferences.getString("myname", "helper");
+    preferences.end();
+    strncpy(batry.myname, hostname.c_str(), sizeof(batry.myname) - 1);
+    batry.myname[sizeof(batry.myname) - 1] = '\0'; // Ensure null-termination
+}
+
+void Battery::updateHostname(const char* newHostname) {
+    saveHostname(newHostname);
+    // Additional code to apply the new hostname if needed
 }

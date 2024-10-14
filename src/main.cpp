@@ -471,7 +471,7 @@ ESPUI.setElementStyle(saveButton, "background-color: #d3d3d3; width: 20%; text-a
 
   //Finally, start up the UI.
   //This should only be called once we are connected to WiFi.
-  ESPUI.begin(HOSTNAME);
+  ESPUI.begin(Battery::batry.myname);
 }
 
 //Most elements in this test UI are assigned this generic callback which prints some

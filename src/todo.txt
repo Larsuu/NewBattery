@@ -1,0 +1,8 @@
+
+
+1. Hostname with getcontrol & save to memory
+2. mqtt -optional & using wifi
+3. telegram bot
+4. check the Boost buttons functionality
+5. status info on the quickpanel
+6. some basic logging on the quickpanel
