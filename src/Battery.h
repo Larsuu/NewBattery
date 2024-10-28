@@ -40,25 +40,15 @@ struct batterys {
     uint32_t     resistance;
     uint32_t     capct;
     uint32_t     chrgr;
+    uint8_t      vState;
+    uint8_t      tState;
+    uint8_t      previousVState;
+    uint8_t      previousTState;
+    bool        chargerState;
     bool        voltBoostActive;
     bool        tempBoostActive;
     };
 
-
-    struct logEntry {
-        int voltageState;
-        int tempState;
-        uint32_t timestamps;
-    };
-
-    #define LOG_SIZE 15
-
-    struct statesLog {
-        logEntry entries[LOG_SIZE];
-        int index = 0;
-    };
-
-    extern statesLog batteryLog;
 
 struct Settings {
         bool    httpAccess;
@@ -85,7 +75,7 @@ public:
     Battery(int tempSensor = 33, 
             int voltagePin = 39, 
             int heaterPin = 32, 
-            int chargerPin = 25,    
+            int chargerPin = 26,    
             int greenLed = 4, 
             int yellowLed = 18, 
             int redLed = 17);
@@ -95,8 +85,6 @@ public:
     void setup();
 
     float readTemperature();
-
-    void printLog();
 
     void handleBatteryControl();    // Main control logic for battery
 
@@ -162,6 +150,9 @@ public:
     bool setCapacity(int capacity);
     int getCapacity();
 
+    bool setResistance(int resistance);
+    int getResistance();
+
     float calculateChargeTime(int initialPercentage, int targetPercentage);
     void  readVoltage(unsigned long intervalSeconds);
 
@@ -176,16 +167,21 @@ public:
     u_int32_t MOVASum = 0;
     bool firstRun = true;
     unsigned long voltageMillis = 0;
+    unsigned long heaterTimer = 0;
+
+    char logBuffer[50] = {0};
+    int logIndex = 0;
+    uint32_t lastLogTime = 0;
+    int lastVoltageState = -1;
+    int lastTempState = -1;
+
+    void addLogEntry(int voltState, int tempState);
 
     void charger(bool state);
 
     void saveHostname(const char* hostname);
     void loadHostname();
     void updateHostname(const char* newHostname);
-
-
-
-
 
 /*
  *  Private methods
@@ -222,7 +218,7 @@ private:
     int tempSensor;   // Pin for voltage reading
     int voltagePin;   // Pin for voltage reading
     int heaterPin;    // Pin for controlling the heater
-    int chargerPin;   // Pin for controlling the charger
+    int chargerPin = 26;   // Pin for controlling the charger
     int greenLed;     // Pin for green LED
     int yellowLed;    // Pin for yellow LED
     int redLed;       // Pin for red LED
@@ -236,9 +232,6 @@ private:
     OneWire oneWire; // Create OneWire instance
     DallasTemperature dallas; // Create DallasTemperature instance
 
-   
-
-
     // PID variables
     float pidInput, pidOutput, pidSetpoint, kp, ki, kd;
     float currentTemp, wantedTemp;
@@ -248,11 +241,6 @@ private:
 
     void controlHeaterPWM(uint8_t dutycycle);
     /// void controlCharger(bool state);
-
-    // my own User Interface struct
-
-    void addLogEntry(VoltageState vState, TempState tState);
-    
 
     VoltageState getVoltageState(   int voltagePrecent, 
                                     int ecoPrecentVoltage, 

@@ -44,11 +44,17 @@
 #define SLOW_BOOT 0
 #define HOSTNAME "veijo"
 #define FORCE_USE_HOTSPOT 0
+#define LOG_BUFFER 50
 
 Battery batt;
 int tempest;
 int batteryInSeries;
 unsigned int mittausmillit = 0;  // battery voltage and heat reading millis()
+
+int previousVState = 0;
+int previousTState = 0;
+String logEntries;
+String logBuffet;
 
 //UI handles
 uint16_t tab1, tab2, tab3;
@@ -64,6 +70,15 @@ uint16_t ecoTempLabel, boostTempLabel, ecoTempMemoryLabel, boostTempMemoryLabel;
 uint16_t tempsLabels, group1, text1, text2, text3, text4, text5, text6, text7, text8, text9, text10, text11, text12;
 uint16_t verticalVoltGroup, VerticalTempGroup, quickControls, horizontalGroup;
 uint16_t voltSwitcher, tempSwitcher, infoLabel, timeLabel, timeString, extraLabel, ultraLabel, chargerTimespan, quickPanelVoltage;
+
+uint16_t logLabel, firstLogLabel, secondLogLabel, thirdLogLabel, fourthLogLabel;
+
+uint16_t heater, heaterRes, heaterNum;
+
+bool previousVoltBoostActive = false;
+bool previousTempBoostActive = false;
+
+uint32_t now = 0;
 
 //UI handles
 uint16_t wifi_ssid_text, wifi_pass_text;
@@ -100,6 +115,8 @@ void boostTempCallback(Control *sender, int type);
 void boostTempSwitcherCallback(Control *sender, int type);
 void boostVoltageSwitcherCallback(Control *sender, int type);
 void selectBattery(Control* sender, int type);
+bool checkAndLogState();
+bool checkAndLogBoostState();
 
 void setUpUI() {
 
@@ -161,28 +178,24 @@ This into the setup page:
   ESPUI.setElementStyle(ESPUI.addControl(Label, "emptyLine", "", None, vertgroupswitcher), clearLabelStyle);  // NewlineLabel
   
 
-  extraLabel = ESPUI.addControl(Label, "ExtraLabel", "1", None, vertgroupswitcher); 
+  extraLabel = ESPUI.addControl(Label, "ExtraLabel", "TempBoost", None, vertgroupswitcher); 
                 ESPUI.setVertical(extraLabel);
                 ESPUI.setElementStyle(extraLabel, switcherLabelStyle);
-
-
-  voltSwitcher =  ESPUI.addControl(Switcher, "", "0", None, vertgroupswitcher, boostVoltageSwitcherCallback);
-                  // ESPUI.setElementStyle(voltSwitcher, switcherLabelStyle);
-                  ESPUI.setVertical(voltSwitcher);
 
   tempSwitcher  = ESPUI.addControl(Switcher, "", "0", None, vertgroupswitcher, boostTempSwitcherCallback);
                   // ESPUI.setElementStyle(tempSwitcher, switcherLabelStyle);
                   ESPUI.setVertical(tempSwitcher);
 
-  ultraLabel = ESPUI.addControl(Label, "", "0", None, vertgroupswitcher);  // NewlineLabel
+  voltSwitcher =  ESPUI.addControl(Switcher, "", "0", None, vertgroupswitcher, boostVoltageSwitcherCallback);
+                  // ESPUI.setElementStyle(voltSwitcher, switcherLabelStyle);
+                  ESPUI.setVertical(voltSwitcher);
+
+  ultraLabel = ESPUI.addControl(Label, "", "VoltBoost", None, vertgroupswitcher);  // NewlineLabel
               ESPUI.setVertical(ultraLabel);
               ESPUI.setElementStyle(ultraLabel, switcherLabelStyle);
 
-
   // ESPUI.setVertical(ESPUI.addControl(Switcher, "", "0", None, vertgroupswitcher, boostTempSwitcherCallback));
   
-
-
   ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, vertgroupswitcher), clearLabelStyle);  // NewlineLabel
 
   // chargerTimeFeedback = ESPUI.addControl(Label, "Charger Time", "0.00", None, vertgroupswitcher);
@@ -191,6 +204,33 @@ This into the setup page:
 
   // ESPUI.addControl(Separator, "", "", None);
   
+
+
+
+
+/*
+saveButton = ESPUI.addControl(Button, "Memory", "Save", None, group1, [](Control *sender, int type) {
+    if (type == B_UP) {
+*/
+
+
+logLabel =  ESPUI.addControl(Label, "Log", "", None, tab1);
+            ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, logLabel), clearLabelStyle);  // NewlineLabel
+
+firstLogLabel = ESPUI.addControl(Label, "FirstLog", "", None, logLabel);
+                ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, firstLogLabel), clearLabelStyle);  // NewlineLabel
+
+/*
+ secondLogLabel = ESPUI.addControl(Label, "SecondLog", "", None, logLabel);
+                 ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, secondLogLabel), clearLabelStyle);  // NewlineLabel
+
+thirdLogLabel = ESPUI.addControl(Label, "ThirdLog", "", None, logLabel);
+                ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, thirdLogLabel), clearLabelStyle);  // NewlineLabel    
+
+fourthLogLabel = ESPUI.addControl(Label, "FourthLog", "", None, logLabel);   
+                ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, fourthLogLabel), clearLabelStyle);  // NewlineLabel
+*/
+
  /*
   * First tab
   *_____________________________________________________________________________________________________________*/
@@ -216,6 +256,22 @@ group1      = ESPUI.addControl(Label, "Battery Settings", "", Turquoise, tab2);
                     ESPUI.setElementStyle(nameLabel, "font-size: x-large; font-family: serif; width: 100%; text-align: center;");
 
 
+
+//    Heater Resistance
+heater            =   ESPUI.addControl(Label, "Chrgr", "Heater", Emerald, group1);
+                      ESPUI.setElementStyle(heater, "text-align: left; font-size: small; font-family: serif; width: 100%; background-color: unset; color: black; margin-top: 20px; border-bottom: 1px solid darkslategray; padding-bottom: 5px;");
+
+
+heaterRes          =  ESPUI.addControl(Label, "Battery Charger", "Resistance", None, group1);    
+                      ESPUI.setElementStyle(heaterRes, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;");
+
+heaterNum   =         ESPUI.addControl(Number, "Charger Settings ", "0", Emerald, group1, generalCallback);
+                      ESPUI.addControl(Min, "", "0", None, heaterNum);
+                      ESPUI.addControl(Max, "", "300", None, heaterNum);
+                      ESPUI.setElementStyle(heaterNum, "background-color: transparent; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield; width: 25%;");
+
+                      ESPUI.setElementStyle(ESPUI.addControl(Label, "A", "Ohm", Emerald, group1), "font-size: medium; font-family: serif; width: 25%; text-align: left; background-color: unset; color: darkslategray;");
+// ---------------------------
 
 text8 = ESPUI.addControl(Label, "Chrgr", "Battery Charger Info", Emerald, group1);
 ESPUI.setElementStyle(text8, "text-align: left; font-size: small; font-family: serif; width: 100%; background-color: unset; color: black; margin-top: 20px; border-bottom: 1px solid darkslategray; padding-bottom: 5px;");
@@ -368,6 +424,7 @@ saveButton = ESPUI.addControl(Button, "Memory", "Save", None, group1, [](Control
         Serial.println(ESPUI.getControl(seriesConfigNum)->value);
         Serial.println(ESPUI.getControl(text10)->value);
         Serial.println(ESPUI.getControl(text12)->value);
+        Serial.println(ESPUI.getControl(heaterNum)->value);
 
         if (batt.setNominalString(ESPUI.getControl(seriesConfigNum)->value.toInt()) &&
           batt.setEcoPrecentVoltage(ESPUI.getControl(ecoVoltNum)->value.toInt()) &&
@@ -375,6 +432,7 @@ saveButton = ESPUI.addControl(Button, "Memory", "Save", None, group1, [](Control
           batt.setBoostPrecentVoltage(ESPUI.getControl(boostVolts)->value.toInt()) &&
           batt.setBoostTemp(ESPUI.getControl(boostTemp)->value.toInt()) &&
           batt.setCharger(ESPUI.getControl(text10)->value.toInt()) &&
+          batt.setResistance(ESPUI.getControl(heaterNum)->value.toInt()) &&
           batt.setCapacity(ESPUI.getControl(text12)->value.toInt())) {
 
           Serial.println("All ok! Saving settings to memory...");  
@@ -391,6 +449,7 @@ saveButton = ESPUI.addControl(Button, "Memory", "Save", None, group1, [](Control
         Serial.println(batt.getBoostTemp());
         Serial.println(batt.getCharger());
         Serial.println(batt.getCapacity());
+        Serial.println(batt.getResistance());
 
     }
 });
@@ -857,21 +916,26 @@ client.publish("battery/test/capct", buffer);
 sprintf(buffer, "%u", Battery::batry.chrgr);
 client.publish("battery/test/chrgr", buffer);
 
+sprintf(buffer, "%d", Battery::batry.vState);
+client.publish("battery/test/vState", buffer);
+
+sprintf(buffer, "%d", Battery::batry.tState);
+client.publish("battery/test/tState", buffer);
+
+sprintf(buffer, "%u", Battery::batry.wantedTemp);
+client.publish("battery/test/wantedTemp", buffer);
+
 client.publish("battery/test/voltBoostActive", Battery::batry.voltBoostActive ? "true" : "false");
 client.publish("battery/test/tempBoostActive", Battery::batry.tempBoostActive ? "true" : "false");
 
+Serial.println("Battery data published");
 client.disconnect();
 Serial.println("MQTT disconnected");
 
-
-
 }
-
-
 
 void setup() {
   
-
     batt.setup();
     randomSeed(0);
 	  Serial.begin(115200);
@@ -888,53 +952,44 @@ void setup() {
 		WiFi.setSleep(true); //For the ESP32: turn off sleeping to increase UI responsivness (at the cost of power use)
 	#endif
 
-    // dnsServer.start(DNS_PORT, "*", apIP);
-
-    Serial.println("\n\nWiFi parameters:");
-    Serial.print("Mode: ");
-    Serial.println(WiFi.getMode() == WIFI_AP ? "Station" : "Client");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.getMode() == WIFI_AP ? WiFi.softAPIP() : WiFi.localIP());
-
-
-  batt.loadSettings();  // needs to be before setUpUI!! 
-
-	setUpUI();
-
-
-  client.setServer(mqtt_server, mqtt_port);
-
+    batt.loadSettings();  // needs to be before setUpUI!! 
+	  setUpUI();
+    client.setServer(mqtt_server, mqtt_port);
 }   
 
 void loop() {
 
   batt.loop(); // Add battery.loop() here
 
-  if(millis() - mittausmillit >= 10000)
+  if(millis() - mittausmillit >= 2000)
   {
       mittausmillit = millis();
-
       String wlanIpAddress;
+
       wlanIpAddress = WiFi.localIP().toString();
       ESPUI.updateLabel(ipText, wlanIpAddress);
       ESPUI.updateLabel(ipLabel, wlanIpAddress);
       ESPUI.updateLabel(labelId, String((millis() / 60000)));
-
       ESPUI.updateLabel(voltLabel, String(batt.getBatteryDODprecent()) + " %");
-      
       ESPUI.updateLabel(tempLabel, String(batt.getTemperature(), 1) + " ℃");
-
       ESPUI.updateLabel(chargerTimeFeedback, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
-
       ESPUI.updateLabel(boostVoltLabel, String(batt.btryToVoltage(batt.getBoostPrecentVoltage()), 0) + " V");
-
       ESPUI.updateLabel(quickPanelVoltage, String(batt.getCurrentVoltage(), 1) + " V");
-
       ESPUI.updateLabel(chargerTimespan, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
-
       ESPUI.updateLabel(autoSeriesNum, String(batt.getBatteryApprxSize()));
-      // Serial.print(" loop: ");
-      // Serial.println(batt.accuVolts());
+
+
+      if (checkAndLogBoostState()) {
+        logEntries += String((millis() / 60000)) + "  " + String(Battery::batry.voltBoostActive) + "     " + String(Battery::batry.tempBoostActive) + "\n";
+      }
+
+
+
+      if (checkAndLogState()) {
+        logEntries += String((millis() / 60000)) + "  " + String("Vs: ") + String(Battery::batry.vState) + "     " + String("Ts:")  + String(Battery::batry.tState) + "\n";
+      }
+      ESPUI.updateLabel(firstLogLabel, logEntries);
+
     }
 
 
@@ -952,6 +1007,37 @@ void readStringFromEEPROM(String& buf, int baseaddress, int size) {
 		buf += c;
 		if(!c) break;
 	}	
+}
+
+
+
+bool checkAndLogState() {
+    if (Battery::batry.vState != Battery::batry.previousVState || Battery::batry.tState != Battery::batry.previousTState) {
+      
+      /*
+        String newState = "VState: " + String(Battery::batry.vState) + ", TState: " + String(Battery::batry.tState);
+        uint32_t timeing = (millis() - now) / 60000;
+        String output;
+        output = String(timeing) + "    " + newState + "\n";
+        previousVState = Battery::batry.vState;
+        previousTState = Battery::batry.tState;
+        Serial.println(newState);
+        return output;
+        */
+
+    return true;
+    }
+    else return false;
+}
+
+
+bool checkAndLogBoostState() {
+    if (Battery::batry.voltBoostActive != previousVoltBoostActive || Battery::batry.tempBoostActive != previousTempBoostActive) {
+        previousTempBoostActive = Battery::batry.tempBoostActive;
+        previousVoltBoostActive = Battery::batry.voltBoostActive;
+        return true;
+    }
+    else return false;
 }
 
 void connectWifi() {
