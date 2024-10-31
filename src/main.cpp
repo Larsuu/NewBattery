@@ -265,7 +265,7 @@ heater            =   ESPUI.addControl(Label, "Chrgr", "Heater", Emerald, group1
 heaterRes          =  ESPUI.addControl(Label, "Battery Charger", "Resistance", None, group1);    
                       ESPUI.setElementStyle(heaterRes, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;");
 
-heaterNum   =         ESPUI.addControl(Number, "Charger Settings ", "0", Emerald, group1, generalCallback);
+heaterNum   =         ESPUI.addControl(Number, "Charger Settings ", "", Emerald, group1, generalCallback);
                       ESPUI.addControl(Min, "", "0", None, heaterNum);
                       ESPUI.addControl(Max, "", "300", None, heaterNum);
                       ESPUI.setElementStyle(heaterNum, "background-color: transparent; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield; width: 25%;");
@@ -516,7 +516,7 @@ ESPUI.setElementStyle(saveButton, "background-color: #d3d3d3; width: 20%; text-a
     ESPUI.updateControlValue(text12, String(batt.getCapacity()));
     ESPUI.updateControlValue(chargerTimeFeedback, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
     ESPUI.updateControlValue(chargerTimespan, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
-
+    ESPUI.updateControlValue(heaterNum, String(batt.getResistance()));
 
 
   //Add a callback to the main selector to print the selected value
@@ -852,7 +852,7 @@ PubSubClient client(espClient);
 
 
 void reconnect() {
-    while (!client.connected()) {
+    // while (!client.connected()) {
         Serial.print("Attempting MQTT connection...");
         if (client.connect("ESP32Client", mqtt_user, mqtt_password)) {
             Serial.println("connected");
@@ -862,7 +862,6 @@ void reconnect() {
             Serial.println(" try again in 5 seconds");
         }
     }
-}
 
 
 void publishMessage() {
@@ -980,13 +979,14 @@ void loop() {
 
 
       if (checkAndLogBoostState()) {
-        logEntries += String((millis() / 60000)) + "  " + String(Battery::batry.voltBoostActive) + "     " + String(Battery::batry.tempBoostActive) + "\n";
+
+        logEntries += String((millis() / 60000)) + "  " + String("Voltage boost: ") + String(Battery::batry.voltBoostActive) + "     " + String("Temp boost: ") + String(Battery::batry.tempBoostActive) + "\n";
       }
 
 
 
       if (checkAndLogState()) {
-        logEntries += String((millis() / 60000)) + "  " + String("Vs: ") + String(Battery::batry.vState) + "     " + String("Ts:")  + String(Battery::batry.tState) + "\n";
+        logEntries += String((millis() / 60000)) + "  " + String("Voltage state: ") + String(Battery::batry.vState) + "     " + String("Temp state: ")  + String(Battery::batry.tState) + "\n";
       }
       ESPUI.updateLabel(firstLogLabel, logEntries);
 

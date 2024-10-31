@@ -19,7 +19,7 @@
 #define ADC_ATTEN ADC_ATTEN_DB_11
 
 #define PWM_CHANNEL 4
-#define PWM_FREQ 1000
+#define PWM_FREQ 200
 #define PWM_RESOLUTION 8
 
 struct batterys {
@@ -44,6 +44,7 @@ struct batterys {
     uint8_t      tState;
     uint8_t      previousVState;
     uint8_t      previousTState;
+    uint8_t      maxPower;
     bool        chargerState;
     bool        voltBoostActive;
     bool        tempBoostActive;
@@ -156,6 +157,8 @@ public:
     float calculateChargeTime(int initialPercentage, int targetPercentage);
     void  readVoltage(unsigned long intervalSeconds);
 
+    void adjustHeaterSettings();
+
     uint32_t determineBatterySeries(uint32_t measuredVoltage_mV);
     float getCurrentVoltage();
     int getBatteryApprxSize();
@@ -207,7 +210,8 @@ private:
         BOOST_TEMP              =  2,
         OVER_TEMP               =  3,
         TEMP_WARNING            =  4,
-        TBOOST_RESET            =  5
+        TBOOST_RESET            =  5,
+        DEFAULT_TEMP            =  6
     };
 
 
@@ -233,7 +237,10 @@ private:
     DallasTemperature dallas; // Create DallasTemperature instance
 
     // PID variables
-    float pidInput, pidOutput, pidSetpoint, kp, ki, kd;
+    float pidInput, pidOutput, pidSetpoint; 
+    float kp = 5;
+    float ki = 0;
+    float kd = 0;
     float currentTemp, wantedTemp;
 
     QuickPID heaterPID;
