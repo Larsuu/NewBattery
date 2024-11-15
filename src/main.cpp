@@ -8,6 +8,9 @@
 #include <PubSubClient.h>
 #include <WiFi.h>
 
+// #include <DNSServer.h>
+#include <ESPUI.h>
+
 #if defined(ESP32)
 #include <WiFi.h>
 #include <ESPmDNS.h>
@@ -29,6 +32,7 @@
 #endif
 #endif
 
+/*
 #define ENABLE_SERIAL_PRINTS true
 
 #if ENABLE_SERIAL_PRINTS
@@ -39,12 +43,18 @@
 #define SERIAL_PRINTLN(x)
 #endif
 
+*/
+
 
 //Settings for ESPUI
 #define SLOW_BOOT 0
-#define HOSTNAME "veijo"
+#define HOSTNAME "Toivo"
 #define FORCE_USE_HOTSPOT 0
 #define LOG_BUFFER 50
+
+
+
+//DNSServer dnsServer;
 
 Battery batt;
 int tempest;
@@ -55,6 +65,9 @@ int previousVState = 0;
 int previousTState = 0;
 String logEntries;
 String logBuffet;
+
+const byte DNS_PORT = 53;
+// IPAddress apIP(192, 168, 1, 1);
 
 //UI handles
 uint16_t tab1, tab2, tab3;
@@ -98,7 +111,6 @@ uint16_t autoSeriesDet, autoSeriesNum;
 void connectWifi();
 void setUpUI();
 void textCallback(Control *sender, int type);
-void randomString(char *buf, int len);
 void paramCallback(Control* sender, int type, int param);
 void generalCallback(Control *sender, int type);
 
@@ -121,8 +133,7 @@ bool checkAndLogBoostState();
 void setUpUI() {
 
 
-  ESPUI.setVerbosity(Verbosity::VerboseJSON);
-  SERIAL_PRINTLN(WiFi.localIP());
+  ESPUI.setVerbosity(Verbosity::Quiet);
   ESPUI.captivePortal = true;
   ESPUI.sliderContinuous = false;
 
@@ -157,7 +168,7 @@ This into the setup page:
   switcherLabelStyle = "width: 25%; background-color: unset;";
 
   // ESPUI.addControl(Separator, "Quick controls", "", None);
-  auto vertgroupswitcher = ESPUI.addControl(Label, "Temp Boost & Voltage Boost", "", Peterriver);
+  auto vertgroupswitcher = ESPUI.addControl(Label, "QuickPanel", "", Peterriver);
   ESPUI.setVertical(vertgroupswitcher); 
 
   ESPUI.setElementStyle(vertgroupswitcher, "background-color: unset;");
@@ -178,7 +189,7 @@ This into the setup page:
   ESPUI.setElementStyle(ESPUI.addControl(Label, "emptyLine", "", None, vertgroupswitcher), clearLabelStyle);  // NewlineLabel
   
 
-  extraLabel = ESPUI.addControl(Label, "ExtraLabel", "TempBoost", None, vertgroupswitcher); 
+  extraLabel = ESPUI.addControl(Label, "ExtraLabel", "Temp Boost", None, vertgroupswitcher); 
                 ESPUI.setVertical(extraLabel);
                 ESPUI.setElementStyle(extraLabel, switcherLabelStyle);
 
@@ -190,7 +201,7 @@ This into the setup page:
                   // ESPUI.setElementStyle(voltSwitcher, switcherLabelStyle);
                   ESPUI.setVertical(voltSwitcher);
 
-  ultraLabel = ESPUI.addControl(Label, "", "VoltBoost", None, vertgroupswitcher);  // NewlineLabel
+  ultraLabel = ESPUI.addControl(Label, "", "Voltage Boost", None, vertgroupswitcher);  // NewlineLabel
               ESPUI.setVertical(ultraLabel);
               ESPUI.setElementStyle(ultraLabel, switcherLabelStyle);
 
@@ -530,7 +541,7 @@ ESPUI.setElementStyle(saveButton, "background-color: #d3d3d3; width: 20%; text-a
 
   //Finally, start up the UI.
   //This should only be called once we are connected to WiFi.
-  ESPUI.begin(HOSTNAME);
+  ESPUI.begin(HOSTNAME, "batt", "ass");
 }
 
 //Most elements in this test UI are assigned this generic callback which prints some
@@ -689,18 +700,11 @@ void boostVoltCallback(Control* sender, int type) {
 		break;
     }
 
-  // ESPUI.updateLabel(boostVoltLabel, String(batt.btryToVoltage(sender->value.toInt()), 2));
-
-  // ESPUI.updateLabel(boostVoltLabel, String(batt.getNominalString(), 0));
-
 }
 
 /*
 
 
-
-
-ESPUI.setElementStyle(oldEcoTempLabel = ESPUI.addControl(Label, "Volts", "0", Emerald, ecoVoltNum), " text-align: center; font-size: large; font-family: serif; width: 70px; background-color: unset;"); 
 
 
 
@@ -817,7 +821,6 @@ void  boostTempSwitcherCallback(Control *sender, int type) {
     }
 }
 
-
 // Most elements in this test UI are assigned this generic callback which prints some
 // basic information. Event types are defined in ESPUI.h
 // The extended param can be used to pass additional information
@@ -849,10 +852,7 @@ unsigned long mqttmillis = 0;
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-
-
 void reconnect() {
-    // while (!client.connected()) {
         Serial.print("Attempting MQTT connection...");
         if (client.connect("ESP32Client", mqtt_user, mqtt_password)) {
             Serial.println("connected");
@@ -863,75 +863,69 @@ void reconnect() {
         }
     }
 
-
 void publishMessage() {
-
     if (!client.connected()) {
         reconnect();
     }
-
-
-char buffer[16];
-
-sprintf(buffer, "%u", Battery::batry.size);
-client.publish("battery/test/size", buffer);
-
-sprintf(buffer, "%u", Battery::batry.sizeApprx);
-client.publish("battery/test/sizeApprx", buffer);
-
-sprintf(buffer, "%u", Battery::batry.mV_max);
-client.publish("battery/test/mV_max", buffer);
-
-sprintf(buffer, "%u", Battery::batry.mV_min);
-client.publish("battery/test/mV_min", buffer);
-
-sprintf(buffer, "%u", Battery::batry.temperature);
-client.publish("battery/test/temperature", buffer);
-
-sprintf(buffer, "%u", Battery::batry.milliVoltage);
-client.publish("battery/test/milliVoltage", buffer);
-
-sprintf(buffer, "%u", Battery::batry.voltageInPrecent);
-client.publish("battery/test/voltageInPrecent", buffer);
-
-sprintf(buffer, "%u", Battery::batry.ecoVoltPrecent);
-client.publish("battery/test/ecoVoltPrecent", buffer);
-
-sprintf(buffer, "%u", Battery::batry.boostVoltPrecent);
-client.publish("battery/test/boostVoltPrecent", buffer);
-
-sprintf(buffer, "%u", Battery::batry.ecoTemp);
-client.publish("battery/test/ecoTemp", buffer);
-
-sprintf(buffer, "%u", Battery::batry.boostTemp);
-client.publish("battery/test/boostTemp", buffer);
-
-sprintf(buffer, "%u", Battery::batry.resistance);
-client.publish("battery/test/resistance", buffer);
-
-sprintf(buffer, "%u", Battery::batry.capct);
-client.publish("battery/test/capct", buffer);
-
-sprintf(buffer, "%u", Battery::batry.chrgr);
-client.publish("battery/test/chrgr", buffer);
-
-sprintf(buffer, "%d", Battery::batry.vState);
-client.publish("battery/test/vState", buffer);
-
-sprintf(buffer, "%d", Battery::batry.tState);
-client.publish("battery/test/tState", buffer);
-
-sprintf(buffer, "%u", Battery::batry.wantedTemp);
-client.publish("battery/test/wantedTemp", buffer);
-
-client.publish("battery/test/voltBoostActive", Battery::batry.voltBoostActive ? "true" : "false");
-client.publish("battery/test/tempBoostActive", Battery::batry.tempBoostActive ? "true" : "false");
-
-Serial.println("Battery data published");
-client.disconnect();
-Serial.println("MQTT disconnected");
-
-}
+    char buffer[16];
+    sprintf(buffer, "%u", Battery::batry.size);
+    client.publish("battery/test/size", buffer);
+    
+    sprintf(buffer, "%u", Battery::batry.sizeApprx);
+    client.publish("battery/test/sizeApprx", buffer);
+    
+    sprintf(buffer, "%u", Battery::batry.mV_max);
+    client.publish("battery/test/mV_max", buffer);
+    
+    sprintf(buffer, "%u", Battery::batry.mV_min);
+    client.publish("battery/test/mV_min", buffer);
+    
+    sprintf(buffer, "%u", Battery::batry.temperature);
+    client.publish("battery/test/temperature", buffer);
+    
+    sprintf(buffer, "%u", Battery::batry.milliVoltage);
+    client.publish("battery/test/milliVoltage", buffer);
+    
+    sprintf(buffer, "%u", Battery::batry.voltageInPrecent);
+    client.publish("battery/test/voltageInPrecent", buffer);
+    
+    sprintf(buffer, "%u", Battery::batry.ecoVoltPrecent);
+    client.publish("battery/test/ecoVoltPrecent", buffer);
+    
+    sprintf(buffer, "%u", Battery::batry.boostVoltPrecent);
+    client.publish("battery/test/boostVoltPrecent", buffer);
+    
+    sprintf(buffer, "%u", Battery::batry.ecoTemp);
+    client.publish("battery/test/ecoTemp", buffer);
+    
+    sprintf(buffer, "%u", Battery::batry.boostTemp);
+    client.publish("battery/test/boostTemp", buffer);
+    
+    sprintf(buffer, "%u", Battery::batry.resistance);
+    client.publish("battery/test/resistance", buffer);
+    
+    sprintf(buffer, "%u", Battery::batry.capct);
+    client.publish("battery/test/capct", buffer);
+    
+    sprintf(buffer, "%u", Battery::batry.chrgr);
+    client.publish("battery/test/chrgr", buffer);
+    
+    sprintf(buffer, "%d", Battery::batry.vState);
+    client.publish("battery/test/vState", buffer);
+    
+    sprintf(buffer, "%d", Battery::batry.tState);
+    client.publish("battery/test/tState", buffer);
+    
+    sprintf(buffer, "%u", Battery::batry.wantedTemp);
+    client.publish("battery/test/wantedTemp", buffer);
+    
+    client.publish("battery/test/voltBoostActive", Battery::batry.voltBoostActive ? "true" : "false");
+    client.publish("battery/test/tempBoostActive", Battery::batry.tempBoostActive ? "true" : "false");
+    
+    Serial.println("Battery data published");
+    client.disconnect();
+    Serial.println("MQTT disconnected"); 
+  }
 
 void setup() {
   
@@ -950,7 +944,6 @@ void setup() {
 	#if defined(ESP32)
 		WiFi.setSleep(true); //For the ESP32: turn off sleeping to increase UI responsivness (at the cost of power use)
 	#endif
-
     batt.loadSettings();  // needs to be before setUpUI!! 
 	  setUpUI();
     client.setServer(mqtt_server, mqtt_port);
@@ -977,26 +970,21 @@ void loop() {
       ESPUI.updateLabel(chargerTimespan, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
       ESPUI.updateLabel(autoSeriesNum, String(batt.getBatteryApprxSize()));
 
-
       if (checkAndLogBoostState()) {
-
         logEntries += String((millis() / 60000)) + "  " + String("Voltage boost: ") + String(Battery::batry.voltBoostActive) + "     " + String("Temp boost: ") + String(Battery::batry.tempBoostActive) + "\n";
       }
-
-
 
       if (checkAndLogState()) {
         logEntries += String((millis() / 60000)) + "  " + String("Voltage state: ") + String(Battery::batry.vState) + "     " + String("Temp state: ")  + String(Battery::batry.tState) + "\n";
       }
+
       ESPUI.updateLabel(firstLogLabel, logEntries);
-
     }
-
 
   if (millis() - lastMsg > interval) {
         lastMsg = millis();
         publishMessage();
-    }
+  }
 
 }
 
@@ -1008,8 +996,6 @@ void readStringFromEEPROM(String& buf, int baseaddress, int size) {
 		if(!c) break;
 	}	
 }
-
-
 
 bool checkAndLogState() {
     if (Battery::batry.vState != Battery::batry.previousVState || Battery::batry.tState != Battery::batry.previousTState) {
@@ -1029,7 +1015,6 @@ bool checkAndLogState() {
     }
     else return false;
 }
-
 
 bool checkAndLogBoostState() {
     if (Battery::batry.voltBoostActive != previousVoltBoostActive || Battery::batry.tempBoostActive != previousTempBoostActive) {
@@ -1119,10 +1104,4 @@ void enterWifiDetailsCallback(Control *sender, int type) {
 
 void textCallback(Control *sender, int type) {
 	//This callback is needed to handle the changed values, even though it doesn't do anything itself.
-}
-
-void randomString(char *buf, int len) {
-	for(auto i = 0; i < len-1; i++) 
-		buf[i] = random(0, 26) + 'A';
-	buf[len-1] = '\0';
 }

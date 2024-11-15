@@ -460,18 +460,18 @@ Battery::TempState Battery::getTempState(   float temperature,
 */     
 void Battery::saveSettings() {
     preferences.begin("btry", false); // Open preferences with namespace "battery_settings" 
-    preferences.putUInt("size",         constrain(batry.size, 10, 20));
+    preferences.putUChar("size",         constrain(batry.size, 10, 20));
     preferences.putUInt("temperature",  constrain(batry.temperature, 1, 2550));
-    preferences.putUInt("currentVolt",  constrain(batry.voltageInPrecent, 1, 100));
-    preferences.putUInt("ecoVolt",      constrain(batry.ecoVoltPrecent, 1, 100));
-    preferences.putUInt("boostVolt",    constrain(batry.boostVoltPrecent, 1, 100));
-    preferences.putUInt("ecoTemp",      constrain(batry.ecoTemp, 1, 2550));
-    preferences.putUInt("boostTemp",    constrain(batry.boostTemp, 1, 2550));
-    preferences.putUInt("resistance",   constrain(batry.resistance, 1, 255));
-    preferences.putUInt("capct",        constrain(batry.capct, 2, 255));
-    preferences.putUInt("chrgr",        constrain(batry.chrgr, 1, 5));
-    preferences.putUInt("resistance",   constrain(batry.resistance, 10, 255));
-    preferences.putUInt("maxPower",     constrain(batry.maxPower, 10, 255));
+    preferences.putUChar("currentVolt",  constrain(batry.voltageInPrecent, 1, 100));
+    preferences.putUChar("ecoVolt",      constrain(batry.ecoVoltPrecent, 1, 100));
+    preferences.putUChar("boostVolt",    constrain(batry.boostVoltPrecent, 1, 100));
+    preferences.putUChar("ecoTemp",      constrain(batry.ecoTemp, 1, 255));
+    preferences.putUChar("boostTemp",    constrain(batry.boostTemp, 1, 255));
+    preferences.putUChar("resistance",   constrain(batry.resistance, 1, 255));
+    preferences.putUChar("capct",        constrain(batry.capct, 1, 255));
+    preferences.putUChar("chrgr",        constrain(batry.chrgr, 1, 5));
+    preferences.putUChar("resistance",   constrain(batry.resistance, 1, 255));
+    preferences.putUChar("maxPower",     constrain(batry.maxPower, 1, 255));
 
 /*
     if(!setup_done) {
@@ -518,51 +518,51 @@ void Battery::saveSettings() {
 void Battery::loadSettings() {
     preferences.begin("btry", false); // Open preferences with namespace "battery_settings" 
     // Sort batry related components
-    batry.size = constrain(preferences.getUInt("size", 1), 7, 20);
+    batry.size = constrain(preferences.getUChar("size", 1), 7, 20);
     Serial.print("Battery size loaded from memory: ");
     Serial.println(batry.size);
 
-    batry.temperature = constrain(preferences.getUInt("temperature", 1), 1, 255);
+    batry.temperature = constrain(preferences.getUInt("temperature", 1), 1, 2550);
     Serial.print("Battery temperature loaded from memory: ");
     Serial.println(batry.temperature);
 
-    batry.voltageInPrecent = constrain(preferences.getUInt("currentVolt", 1), 5, 100);
+    batry.voltageInPrecent = constrain(preferences.getUChar("currentVolt", 1), 5, 100);
     Serial.print("Battery voltage loaded from memory: ");
     Serial.println(batry.voltageInPrecent);
 
-    batry.resistance = constrain(preferences.getUInt("resistance", 1), 2, 255);
+    batry.resistance = constrain(preferences.getUChar("resistance", 1), 2, 255);
     Serial.print("Battery resistance loaded from memory: ");
     Serial.println(batry.resistance);
 
-    batry.ecoVoltPrecent = constrain(preferences.getUInt("ecoVolt", 1), 5, 255);
+    batry.ecoVoltPrecent = constrain(preferences.getUChar("ecoVolt", 1), 5, 255);
     Serial.print("Battery eco voltage loaded from memory: ");
     Serial.println(batry.ecoVoltPrecent);
 
-    batry.boostVoltPrecent = constrain(preferences.getUInt("boostVolt", 1), 5, 255);
+    batry.boostVoltPrecent = constrain(preferences.getUChar("boostVolt", 1), 5, 255);
     Serial.print("Battery boost voltage loaded from memory: ");
     Serial.println(batry.boostVoltPrecent);
 
-    batry.boostTemp = constrain(preferences.getUInt("boostTemp", 1), 5, 39);
+    batry.boostTemp = constrain(preferences.getUChar("boostTemp", 1), 5, 40);
     Serial.print("Battery boost temperature loaded from memory: ");
     Serial.println(batry.boostTemp);
 
-    batry.ecoTemp = constrain(preferences.getUInt("ecoTemp", 1), 5, 30);
+    batry.ecoTemp = constrain(preferences.getUChar("ecoTemp", 1), 5, 30);
     Serial.print("Battery eco temperature loaded from memory: ");
     Serial.println(batry.ecoTemp);
 
-    batry.capct = constrain(preferences.getUInt("capct", 1), 2, 255);
+    batry.capct = constrain(preferences.getUChar("capct", 1), 1, 255);
     Serial.print("Battery capacity loaded from memory: ");
     Serial.println(batry.capct);
 
-    batry.chrgr = constrain(preferences.getUInt("chrgr", 0), 1, 10);
+    batry.chrgr = constrain(preferences.getUChar("chrgr", 0), 1, 5);
     Serial.print("Battery charger loaded from memory: ");
     Serial.println(batry.chrgr);
 
-    batry.resistance = constrain(preferences.getUInt("resistance", 1), 2, 255);
+    batry.resistance = constrain(preferences.getUChar("resistance", 1), 2, 255);
     Serial.print("Battery resistance loaded from memory: ");
     Serial.println(batry.resistance);
 
-    batry.maxPower = constrain(preferences.getUInt("maxPower", 1), 2, 255);
+    batry.maxPower = constrain(preferences.getUChar("maxPower", 1), 2, 255);
     Serial.print("Battery max power loaded from memory: ");
     Serial.println(batry.maxPower);
 
@@ -656,7 +656,8 @@ void Battery::readVoltage(unsigned long intervalSeconds) {
             // Update battery voltage in percentage
             batry.voltageInPrecent = getVoltageInPercentage(movingAverage);
         } else {
-            accurateVoltage = 0; // Set the accurate voltage to 0 in case of reading error
+            batry.milliVoltage = 0; // Set the accurate voltage to 0 in case of reading error
+            batry.voltageInPrecent = 0; // Set the voltage in percentage to 0 in case of reading error
             Serial.println("Voltage reading error");
         }
     }
@@ -676,7 +677,7 @@ void Battery::readVoltage(unsigned long intervalSeconds) {
 float Battery::btryToVoltage(int precent) {
 
 
-    if (precent > 0 && precent < 100) {
+    if (precent > 0 && precent < 101) {
         float milliVolts = 0.0f;
         milliVolts = (batry.size * 3000);
         milliVolts += (batry.size * (1200 * (int)precent ) / 100);
@@ -709,7 +710,7 @@ int Battery::getVoltageInPercentage(uint32_t milliVoltage) {
         return 0;  // Below minimum voltage, 0% usable area
         Serial.println("Below minimum voltage");
     } else if (milliVoltage > (maxVoltage * batry.size)) {
-        return 100;  // Above maximum voltage, 100% usable area
+        return 0;  // Above maximum voltage, 100% usable area
         Serial.println("Above maximum voltage");
     } else {
         uint32_t voltageRange = (maxVoltage - minVoltage) * batry.size;
@@ -754,7 +755,7 @@ bool Battery::setEcoPrecentVoltage(int value) {
 }
 
 // @brief Get the battery economy voltage percentage endpoint
-int Battery::getEcoPrecentVoltage() {
+uint8_t Battery::getEcoPrecentVoltage() {
     return batry.ecoVoltPrecent;
 }
 /*
@@ -777,7 +778,7 @@ bool Battery::setBoostPrecentVoltage(int boostPrecentVoltage) {
 }
 
 // @brief Get the battery boost voltage percentage endpoint
-int Battery::getBoostPrecentVoltage() {
+uint8_t Battery::getBoostPrecentVoltage() {
     return batry.boostVoltPrecent;
 }
 /*
@@ -807,7 +808,7 @@ float Battery::getTemperature() {
     if(tempReturn < 80 && tempReturn > -50) {
         return tempReturn;
     }
-    else return 1;
+    else return 44;
 }   
 
 /*
@@ -831,7 +832,7 @@ bool Battery::setNominalString(int size) {
     else return false;
 }
 
-int Battery::getNominalString() {
+uint8_t Battery::getNominalString() {
     return batry.size;
 }
 /*
@@ -843,7 +844,7 @@ int Battery::getNominalString() {
     Setter and Getter for battery boost temperature settings. 
         - ESPUI interface for the user to set the battery temperature settings.
 */
-int Battery::getEcoTemp() {
+uint8_t Battery::getEcoTemp() {
     return batry.ecoTemp;
 }
 
@@ -862,12 +863,12 @@ bool Battery::setEcoTemp(int ecoTemp) {
     SetGetter for Temperature boost settings. 
         - ESPUI interface for the user to set the battery temperature settings.
 */
-int Battery::getBoostTemp() {
+uint8_t Battery::getBoostTemp() {
     return batry.boostTemp;
 }
 
 bool Battery::setBoostTemp(int boostTemp) {
-    if(boostTemp > 10 && boostTemp < 36 && boostTemp > batry.ecoTemp) {
+    if(boostTemp > 10 && boostTemp < 40 && boostTemp > batry.ecoTemp) {
         batry.boostTemp = boostTemp;
         return true;
     }
@@ -886,12 +887,11 @@ bool Battery::setBoostTemp(int boostTemp) {
 
 */
 bool Battery::activateTemperatureBoost(bool tempBoostActive) {
-    if(tempBoostActive && !batry.tempBoostActive) {
+    if(tempBoostActive) {
         batry.tempBoostActive = true;
         return true;
     }
-    else if(tempBoostActive && batry.tempBoostActive) {
-        // Serial.println("Temperature boost is already active -> toggle to deactivate");
+    else if(!tempBoostActive ) {
         batry.tempBoostActive = false;
         return true;
     }
@@ -906,15 +906,13 @@ bool Battery::getActivateTemperatureBoost() {
 }
 
 bool Battery::activateVoltageBoost(bool voltBoostActive) {
-    if(voltBoostActive && !batry.voltBoostActive) {
+    if(voltBoostActive) {
         batry.voltBoostActive = true;
-        Serial.println("Voltage boost activated");
         return true;
     }
-    else if (voltBoostActive && batry.voltBoostActive) {
+    else if (!voltBoostActive) {
         batry.voltBoostActive = false;
-        Serial.println("Voltage boost is already active -> toggled to deactivate");
-        return false;
+        return true;
     }
     else return false;
 }
@@ -941,7 +939,7 @@ float Battery::calculateChargeTime(int initialPercentage, int targetPercentage) 
 
     // Setter function to set charger current and battery capacity
 bool Battery::setCharger(int chargerCurrent) {
-    if(chargerCurrent > 0 && chargerCurrent < 6) {
+    if(chargerCurrent > 0 && chargerCurrent < 10) {
         batry.chrgr = chargerCurrent;
         return true;
     }
@@ -977,9 +975,6 @@ int Battery::getCapacity()  {
 
 */
 /**/
-float Battery::accuVolts() {
-    return accurateVoltage;
-}
 
 uint32_t Battery::determineBatterySeries(uint32_t measuredVoltage_mV) {
     const uint32_t voltagePerCell_mV = 4200; // 4.2V on 4200 millivolttia
@@ -1061,7 +1056,7 @@ void Battery::updateHostname(const char* newHostname) {
 }
 
 // Setter for battery resistance
-bool Battery::setResistance(int resistance) {
+bool Battery::setResistance(uint8_t resistance) {
     if (resistance > 10 && resistance < 256) {
         batry.resistance = resistance;
         return true;
@@ -1077,7 +1072,7 @@ int Battery::getResistance() {
 
 
 void Battery::adjustHeaterSettings() {
-    const float maxPower = 50.0; // Maximum power in watts
+    const float maxPower = 25.0; // Maximum power in watts
 
     // Calculate the maximum allowable power based on the resistance and voltage
     float power = (batry.size * float(3.7) * batry.size * float(3.7)  ) / batry.resistance;

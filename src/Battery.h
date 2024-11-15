@@ -25,21 +25,21 @@
 struct batterys {
 
     char         myname[13];
-    uint32_t     size;
-    uint32_t     sizeApprx;
-    uint32_t     wantedTemp;
+    uint8_t     size;
+    uint8_t     sizeApprx;
+    uint8_t     wantedTemp;
     uint32_t     mV_max;
     uint32_t     mV_min;
     uint32_t     temperature;
     uint32_t     milliVoltage;
-    uint32_t     voltageInPrecent;
-    uint32_t     ecoVoltPrecent;
-    uint32_t     boostVoltPrecent;
-    uint32_t     ecoTemp;
-    uint32_t     boostTemp;
-    uint32_t     resistance;
-    uint32_t     capct;
-    uint32_t     chrgr;
+    uint8_t     voltageInPrecent;
+    uint8_t     ecoVoltPrecent;
+    uint8_t     boostVoltPrecent;
+    uint8_t     ecoTemp;
+    uint8_t     boostTemp;
+    uint8_t     resistance;
+    uint8_t     capct;
+    uint8_t     chrgr;
     uint8_t      vState;
     uint8_t      tState;
     uint8_t      previousVState;
@@ -94,7 +94,6 @@ public:
 
     esp_adc_cal_characteristics_t characteristics;
 
-    
     float getTemperature();         // Returns the current battery temperature
     
     bool isTemperatureSafe();
@@ -102,41 +101,27 @@ public:
 
     int getVoltageInPercentage(uint32_t milliVoltage);
     float btryToVoltage(int precent); 
-
-    int currentPrecentVoltage;
-    int voltagePrecent, ecoPrecentVoltage, boostPrecentVoltage;
-    bool boostVoltageModeOn;
-    bool boostTemperatureModeOn;
-    bool boostActive;
-    int boostTemp, ecoTemp;
-    float temperature;
-    bool boostVoltageMode;
+    
     unsigned long currentMillis = 0;
     unsigned long lastTempStateTime = 0;
     unsigned long lastVoltageStateTime = 0;
-    bool overrideTempTimer = false;
-    bool overrideVoltageTimer = false;
-    bool tempBoostActive = false;
-    bool voltageBoostActive = false;
+
     bool setup_done = false;
-    float accurateVoltage;
     unsigned long dallasTime = 0;
 
-    float accuVolts();
-
-    int getNominalString();
+    uint8_t getNominalString();
     bool setNominalString(int size);
 
     bool setEcoPrecentVoltage(int value);
-    int getEcoPrecentVoltage();
+    uint8_t getEcoPrecentVoltage();
 
     bool setBoostPrecentVoltage(int boostPrecentVoltage);
-    int getBoostPrecentVoltage();
+    uint8_t getBoostPrecentVoltage();
 
-    int getEcoTemp();
+    uint8_t getEcoTemp();
     bool setEcoTemp(int ecoTemp);
 
-    int getBoostTemp();
+    uint8_t getBoostTemp();
     bool setBoostTemp(int boostTemp);
 
     bool activateTemperatureBoost(bool value);
@@ -151,7 +136,7 @@ public:
     bool setCapacity(int capacity);
     int getCapacity();
 
-    bool setResistance(int resistance);
+    bool setResistance(uint8_t resistance);
     int getResistance();
 
     float calculateChargeTime(int initialPercentage, int targetPercentage);
