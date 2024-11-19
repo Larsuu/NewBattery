@@ -48,7 +48,7 @@
 
 //Settings for ESPUI
 #define SLOW_BOOT 0
-#define HOSTNAME "Toivo"
+#define HOSTNAME "Helmi"
 #define FORCE_USE_HOTSPOT 0
 #define LOG_BUFFER 50
 
@@ -147,23 +147,7 @@ void setUpUI() {
    * This tab contains all the basic ESPUI controls, and shows how to read and update them at runtime.
    *-----------------------------------------------------------------------------------------------------------*/
   
-
-/*
-This into the setup page:
-
-    String battEmpty = "<br><br>      Empty             0%   =   " + String((sender->value.toInt() * (float)3 ), 1);
-    String battNom   = "    <br>      Nominal        50%   =   " + String((sender->value.toInt() * (float)3.7 ), 1);
-    String battFull =  "    <br>      Full              100%   =  " +  String((sender->value.toInt() * (float)4.2 ), 1);      
-    String allBatt = battEmpty + battNom + battFull;
-    ESPUI.updateLabel(battInfo, allBatt);
-
-
-*/
-
-
-
-
-  
+ 
   clearLabelStyle = "background-color: unset; width: 100%;";
   switcherLabelStyle = "width: 25%; background-color: unset;";
 
@@ -183,7 +167,7 @@ This into the setup page:
   voltLabel =   ESPUI.addControl(Label, "VoltLabel", "0", None, vertgroupswitcher);
                 ESPUI.setElementStyle(voltLabel, switcherLabelStyle);
 
-  quickPanelVoltage = ESPUI.addControl(Label, "QuickbtrToVolts", "99.9", None, vertgroupswitcher);  // NewlineLabel
+  quickPanelVoltage = ESPUI.addControl(Label, "QuickbtrToVolts", "0", None, vertgroupswitcher);  // NewlineLabel
                       ESPUI.setElementStyle(quickPanelVoltage, switcherLabelStyle);
 
   ESPUI.setElementStyle(ESPUI.addControl(Label, "emptyLine", "", None, vertgroupswitcher), clearLabelStyle);  // NewlineLabel
@@ -205,24 +189,7 @@ This into the setup page:
               ESPUI.setVertical(ultraLabel);
               ESPUI.setElementStyle(ultraLabel, switcherLabelStyle);
 
-  // ESPUI.setVertical(ESPUI.addControl(Switcher, "", "0", None, vertgroupswitcher, boostTempSwitcherCallback));
-  
-  ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, vertgroupswitcher), clearLabelStyle);  // NewlineLabel
-
-  // chargerTimeFeedback = ESPUI.addControl(Label, "Charger Time", "0.00", None, vertgroupswitcher);
-
-  // ESPUI.setVertical(chargerTimeFeedback);
-
-  // ESPUI.addControl(Separator, "", "", None);
-  
-
-
-
-
-/*
-saveButton = ESPUI.addControl(Button, "Memory", "Save", None, group1, [](Control *sender, int type) {
-    if (type == B_UP) {
-*/
+              ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, vertgroupswitcher), clearLabelStyle);  // NewlineLabel
 
 
 logLabel =  ESPUI.addControl(Label, "Log", "", None, tab1);
@@ -231,16 +198,6 @@ logLabel =  ESPUI.addControl(Label, "Log", "", None, tab1);
 firstLogLabel = ESPUI.addControl(Label, "FirstLog", "", None, logLabel);
                 ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, firstLogLabel), clearLabelStyle);  // NewlineLabel
 
-/*
- secondLogLabel = ESPUI.addControl(Label, "SecondLog", "", None, logLabel);
-                 ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, secondLogLabel), clearLabelStyle);  // NewlineLabel
-
-thirdLogLabel = ESPUI.addControl(Label, "ThirdLog", "", None, logLabel);
-                ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, thirdLogLabel), clearLabelStyle);  // NewlineLabel    
-
-fourthLogLabel = ESPUI.addControl(Label, "FourthLog", "", None, logLabel);   
-                ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, fourthLogLabel), clearLabelStyle);  // NewlineLabel
-*/
 
  /*
   * First tab
@@ -259,12 +216,12 @@ group1      = ESPUI.addControl(Label, "Battery Settings", "", Turquoise, tab2);
               ESPUI.setElementStyle(group1, "background-color: unset; width: 100%; color: black; font-size: medium;");
 
   
-    nameLabel =  ESPUI.addControl(Text, "Hostname ", "Veijo", Alizarin, group1, generalCallback);
-                    ESPUI.setElementStyle(nameLabel, "background-color: unset; width: 50%; text-align: center; font-size: medium;");
-                    ESPUI.setElementStyle(ESPUI.addControl(Label, "veijo.local", "URL:  veijo.local ", Alizarin, nameLabel), "background-color: unset; width: 100%; text-align: left;");
-                    ESPUI.setElementStyle(ESPUI.addControl(Label, "ip", "IP: ", Alizarin, nameLabel), "background-color: unset; width: 20%; text-align: left;");
-                    ESPUI.setElementStyle( ipLabel = ESPUI.addControl(Label, "", "IP", None, nameLabel), "background-color: unset; width: 80%; text-align: left;");
-                    ESPUI.setElementStyle(nameLabel, "font-size: x-large; font-family: serif; width: 100%; text-align: center;");
+nameLabel =  ESPUI.addControl(Text, "Hostname ", "Ossi", Alizarin, group1, generalCallback);
+                ESPUI.setElementStyle(nameLabel, "background-color: unset; width: 50%; text-align: center; font-size: medium;");
+                ESPUI.setElementStyle(ESPUI.addControl(Label, "veijo.local", "URL:  veijo.local ", Alizarin, nameLabel), "background-color: unset; width: 100%; text-align: left;");
+                ESPUI.setElementStyle(ESPUI.addControl(Label, "ip", "IP: ", Alizarin, nameLabel), "background-color: unset; width: 20%; text-align: left;");
+                ESPUI.setElementStyle( ipLabel = ESPUI.addControl(Label, "", "IP", None, nameLabel), "background-color: unset; width: 80%; text-align: left;");
+                ESPUI.setElementStyle(nameLabel, "font-size: x-large; font-family: serif; width: 100%; text-align: center;");
 
 
 
@@ -428,6 +385,7 @@ ESPUI.setElementStyle(text7, "text-align: left; font-size: small; font-family: s
 saveButton = ESPUI.addControl(Button, "Memory", "Save", None, group1, [](Control *sender, int type) {
     if (type == B_UP) {
         Serial.println("Saving battery structs...");
+        Serial.println(ESPUI.getControl(nameLabel)->value);
         Serial.println(ESPUI.getControl(ecoTempNum)->value);
         Serial.println(ESPUI.getControl(ecoVoltNum)->value);
         Serial.println(ESPUI.getControl(boostTemp)->value);
@@ -541,7 +499,7 @@ ESPUI.setElementStyle(saveButton, "background-color: #d3d3d3; width: 20%; text-a
 
   //Finally, start up the UI.
   //This should only be called once we are connected to WiFi.
-  ESPUI.begin(HOSTNAME, "batt", "ass");
+  ESPUI.begin(HOSTNAME);
 }
 
 //Most elements in this test UI are assigned this generic callback which prints some
@@ -868,59 +826,81 @@ void publishMessage() {
         reconnect();
     }
     char buffer[16];
+    char topicBuffer[48];
+
     sprintf(buffer, "%u", Battery::batry.size);
-    client.publish("battery/test/size", buffer);
+    sprintf(topicBuffer, "battery/%s/size", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
     
     sprintf(buffer, "%u", Battery::batry.sizeApprx);
-    client.publish("battery/test/sizeApprx", buffer);
+    sprintf(topicBuffer, "battery/%s/sizeApprx", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
     
     sprintf(buffer, "%u", Battery::batry.mV_max);
-    client.publish("battery/test/mV_max", buffer);
+    sprintf(topicBuffer, "battery/%s/mV_max", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
     
     sprintf(buffer, "%u", Battery::batry.mV_min);
-    client.publish("battery/test/mV_min", buffer);
+    sprintf(topicBuffer, "battery/%s/mV_min", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
     
-    sprintf(buffer, "%u", Battery::batry.temperature);
-    client.publish("battery/test/temperature", buffer);
+    sprintf(buffer, "%.1f", Battery::batry.temperature);
+    sprintf(topicBuffer, "battery/%s/temperature", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
     
     sprintf(buffer, "%u", Battery::batry.milliVoltage);
-    client.publish("battery/test/milliVoltage", buffer);
+    sprintf(topicBuffer, "battery/%s/milliVoltage", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
     
     sprintf(buffer, "%u", Battery::batry.voltageInPrecent);
-    client.publish("battery/test/voltageInPrecent", buffer);
+    sprintf(topicBuffer, "battery/%s/voltageInPrecent", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
     
     sprintf(buffer, "%u", Battery::batry.ecoVoltPrecent);
-    client.publish("battery/test/ecoVoltPrecent", buffer);
+    sprintf(topicBuffer, "battery/%s/ecoVoltPrecent", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
     
     sprintf(buffer, "%u", Battery::batry.boostVoltPrecent);
-    client.publish("battery/test/boostVoltPrecent", buffer);
+    sprintf(topicBuffer, "battery/%s/boostVoltPrecent", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
     
     sprintf(buffer, "%u", Battery::batry.ecoTemp);
-    client.publish("battery/test/ecoTemp", buffer);
+    sprintf(topicBuffer, "battery/%s/ecoTemp", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
     
     sprintf(buffer, "%u", Battery::batry.boostTemp);
-    client.publish("battery/test/boostTemp", buffer);
+    sprintf(topicBuffer, "battery/%s/boostTemp", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
     
     sprintf(buffer, "%u", Battery::batry.resistance);
-    client.publish("battery/test/resistance", buffer);
+    sprintf(topicBuffer, "battery/%s/resistance", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
     
     sprintf(buffer, "%u", Battery::batry.capct);
-    client.publish("battery/test/capct", buffer);
+    sprintf(topicBuffer, "battery/%s/capct", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
     
     sprintf(buffer, "%u", Battery::batry.chrgr);
-    client.publish("battery/test/chrgr", buffer);
+    sprintf(topicBuffer, "battery/%s/chrgr", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
     
     sprintf(buffer, "%d", Battery::batry.vState);
-    client.publish("battery/test/vState", buffer);
+    sprintf(topicBuffer, "battery/%s/vState", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
     
     sprintf(buffer, "%d", Battery::batry.tState);
-    client.publish("battery/test/tState", buffer);
+    sprintf(topicBuffer, "battery/%s/tState", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
     
     sprintf(buffer, "%u", Battery::batry.wantedTemp);
-    client.publish("battery/test/wantedTemp", buffer);
+    sprintf(topicBuffer, "battery/%s/wantedTemp", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
     
-    client.publish("battery/test/voltBoostActive", Battery::batry.voltBoostActive ? "true" : "false");
-    client.publish("battery/test/tempBoostActive", Battery::batry.tempBoostActive ? "true" : "false");
+    sprintf(topicBuffer, "battery/%s/voltBoostActive", Battery::batry.myname);
+    client.publish(topicBuffer, Battery::batry.voltBoostActive ? "true" : "false");
+    
+    sprintf(topicBuffer, "battery/%s/tempBoostActive", Battery::batry.myname);
+    client.publish(topicBuffer, Battery::batry.tempBoostActive ? "true" : "false");
     
     Serial.println("Battery data published");
     client.disconnect();

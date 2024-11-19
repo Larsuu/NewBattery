@@ -30,7 +30,7 @@ struct batterys {
     uint8_t     wantedTemp;
     uint32_t     mV_max;
     uint32_t     mV_min;
-    uint32_t     temperature;
+    float     temperature;
     uint32_t     milliVoltage;
     uint8_t     voltageInPrecent;
     uint8_t     ecoVoltPrecent;
@@ -207,7 +207,7 @@ private:
     int tempSensor;   // Pin for voltage reading
     int voltagePin;   // Pin for voltage reading
     int heaterPin;    // Pin for controlling the heater
-    int chargerPin = 26;   // Pin for controlling the charger
+    int chargerPin = 25;   // Pin for controlling the charger
     int greenLed;     // Pin for green LED
     int yellowLed;    // Pin for yellow LED
     int redLed;       // Pin for red LED
@@ -223,7 +223,7 @@ private:
 
     // PID variables
     float pidInput, pidOutput, pidSetpoint; 
-    float kp = 5;
+    float kp = 3;
     float ki = 0;
     float kd = 0;
     float currentTemp, wantedTemp;
