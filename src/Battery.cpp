@@ -14,6 +14,8 @@ So one can define which was the cause if something goes wrong.
 -- Kallen testiversio: Huomita. Mosfetin gatelle asennettin zener diodit suojaamaan. PTC rele unohtui, mutta ei toistaiseksi vielä lämmitystä tarkoitusta
     rakentaa hänellä.
 
+    Kallen tallennus
+
 
 
 */
