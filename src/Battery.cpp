@@ -18,12 +18,25 @@ So one can define which was the cause if something goes wrong.
 
 
 
+    TODO:
+
+    PID: P value save
+    Wifi Access Point mode on after certain timeout of no wifi availability
+    save hostname to preferences and to as mdns hostname.
+    save wifi credentials to preferences
+    save mqtt credentials to preferences
+    save ADC voltage multiplier to preferences
+
+
+
+
+
+
 */
 
 #define LOG_BUFFER 50
 
 batterys Battery::batry;
-
 
 #define LOGS_SIZE 10
 
@@ -41,7 +54,6 @@ struct statesLog {
 };
 
 statesLog batteryLog;
-
 
 Battery::Battery(   int tempSensor, 
                     int voltagePin, 
@@ -61,18 +73,22 @@ Battery::Battery(   int tempSensor,
                     green(greenLed)
                 {
                     heaterPID.SetTunings(kp, ki, kd); //apply PID gains
-                    heaterPID.SetMode(QuickPID::Control::automatic);   
-                    heaterPID.SetOutputLimits(0, 10);
+                    heaterPID.SetMode(QuickPID::Control::manual);   
+                    heaterPID.SetOutputLimits(0, 255);
                     heaterPID.SetSampleTimeUs(1000 * 1000); // 1 second.
-                    heaterPID.SetAntiWindupMode(QuickPID::iAwMode::iAwClamp); 
+                    
+                    
+                    // setup();
+                    
+                    begin();
                 }
-
 
 void Battery::begin()
 {
     pinMode(25, OUTPUT);
     digitalWrite(25, LOW);
-    setup();
+
+
 }
 
 
@@ -90,22 +106,20 @@ void Battery::setup() {
     red.start();
     red.setDelay(1000, 2000);
 
+    /*
     if(batry.resistance < 5) {
-
         heaterPID.SetOutputLimits(0, 10);
         heaterPID.SetMode(QuickPID::Control::manual);
-
     }
     else if ( batry.resistance > 5) {
         adjustHeaterSettings();
         heaterPID.SetMode(QuickPID::Control::automatic);
     }   
+    */
+
 
     ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
     ledcAttachPin(heaterPin, PWM_CHANNEL);
-
-    pidOutput = 0;
-    pidInput = 0;
 
     controlHeaterPWM(0);
 
@@ -145,31 +159,53 @@ void Battery::loop() {
     Control the PWM with updateHeaterPID function
 */
 void Battery::controlHeaterPWM(uint8_t dutyCycle) {
-    
-    ledcWrite(PWM_CHANNEL, dutyCycle);
 
+
+
+    ledcWrite(PWM_CHANNEL, dutyCycle);
 }
 /*
-
 
 
 
     the QuickPID Wrapping Function, executed every second. 
 */
 void Battery::updateHeaterPID() {
-    if (( heaterPID.GetMode() == static_cast<uint8_t>(QuickPID::Control::automatic) && (millis() - heaterTimer >= 1000))) {
+    if (( millis() - heaterTimer >= 1000)) {
         heaterTimer = millis();
         this->pidInput = batry.temperature; // Update the input with the current temperature
         this->pidSetpoint = batry.wantedTemp; // Update the setpoint with the wanted temperature
-        controlHeaterPWM(static_cast<uint8_t>(pidOutput)); // Control the heater with the PID output
+
+        Serial.print("PID: ");
+        Serial.print("O:: ");
+        Serial.print(pidOutput);
+        Serial.print(" ");
+        Serial.print(batry.maxPower);  
+        Serial.print(" ");
+        Serial.print("mode: ");
+        Serial.print(heaterPID.GetMode());
+        Serial.print(" ");
+        Serial.print("Kp: ");
+        Serial.print(heaterPID.GetKp());
+        Serial.print(" ");
+        Serial.print("Ki: ");
+        Serial.print(heaterPID.GetKi());
+        Serial.print(" ");
+
+        Serial.print(" PWM: ");
+        Serial.print(ledcReadFreq(PWM_CHANNEL));
+        Serial.print(" ");
+        Serial.print(ledcRead(PWM_CHANNEL));
+        
+        Battery::adjustHeaterSettings();
+
+        uint8_t powerOutput = pidOutput;
+        Serial.println(powerOutput);
+
+        controlHeaterPWM(powerOutput); // Control the heater with the PID output
     }
 }
-
-
-
 /*
-
-
         Dallas temp sensor function
 
         @bried: Reads the temperature from the Dallas sensor
@@ -185,66 +221,59 @@ float Battery::readTemperature() {
         Logging function for the battery control & quickpanel.
 */
 
-
-
-/*
-
-
-    Logging function for the battery control & quickpanel.
-*/
-
-/*
-
-
-
-
-*/
-
-
-/*
-
-
-
-
-*/
-
-
 void Battery::handleBatteryControl() {
     uint32_t currentMillis = millis(); 
     
-    if (currentMillis - lastVoltageStateTime >= 5000) {
+    if (currentMillis - lastVoltageStateTime >= 1000) {
 
         batry.previousVState = batry.vState;
         batry.previousTState = batry.tState;
-        
 
-        VoltageState vState = getVoltageState(batry.voltageInPrecent, batry.ecoVoltPrecent, batry.boostVoltPrecent);
         TempState tState;
+        VoltageState vState;
+
+
+        // First Primary control of the battery charging and heating's state selection. To simplify the logic.
+        // 1. we cant charge if the battery is too hot or too cold
+        if(batry.temperature > float(0) && batry.temperature < float(40))
+            { 
+
+                // if we were to have favorable conditions for charging, then we can charge according to the voltage level.
+                vState = getVoltageState(batry.voltageInPrecent, batry.ecoVoltPrecent, batry.boostVoltPrecent);
+            }
+        else 
+            { 
+                // if not, then we can't charge, and we might need to heat or cool the battery first.
+                charger(false);
+                tState = getTempState(batry.temperature, batry.ecoTemp, batry.boostTemp);
+            }
+
 
         switch (vState) {
             case LAST_RESORT:
 
-                    Serial.print(" V: Last resort ");
-                    tState = getTempState(batry.temperature, 3, 1);                             // lets lower the target for temperature        
+                    tState = getTempState(batry.temperature, 2, 3);
+                    Serial.print(" V: Last resort "); 
                     if(tState != SUBZERO && tState != TEMP_WARNING) 
                         { 
                             charger(true); 
-                           
                             red.setDelay(1000, 2000);
                             green.setDelay(1000, 0);
                             yellow.setDelay(1000, 0);
                         }
                     else 
                         { 
-                            charger(false); 
+                            charger(false);
+                            heaterPID.SetMode(QuickPID::Control::manual); 
                             red.setDelay(0, 5000);
                         }
-
                 break;
             case LOW_VOLTAGE_WARNING:
 
-                    Serial.print(" V: Low voltage warning ");
+                    Serial.print(" V: LowV_Alarm ");
+                    heaterPID.SetMode(QuickPID::Control::automatic);
                     tState = getTempState(batry.temperature, batry.ecoTemp, batry.ecoTemp);
+                    
 
                     if(tState != SUBZERO && tState != TEMP_WARNING) 
                         { 
@@ -258,46 +287,45 @@ void Battery::handleBatteryControl() {
                             charger(false); 
                             red.setDelay(0, 2500);
                         }
- 
-
                 // Logic for low voltage handling (e.g., stop heating completely,  error!)
                 break;
             case PROTECTED:
 
-                    Serial.print(" V: Protected mode ");
+                    Serial.print(" V: Protect ");
+                    heaterPID.SetMode(QuickPID::Control::automatic);
                     tState = getTempState(batry.temperature, batry.ecoTemp, batry.boostTemp);
-                    
-                    red.setDelay(10000, 0);
+                    red.setDelay(1000, 0);
                     yellow.setDelay(1000);
                     green.setDelay(1000, 0);
 
-                    if(tState != SUBZERO && tState != TEMP_WARNING) charger(true);
+                    if(tState != SUBZERO && tState != TEMP_WARNING) { charger(true); }
                 // Logic for protected mode, blink warning, reduce heating goal for +1 celsius degree. 
                 break;
             case ECONOMY:
 
+                    heaterPID.SetMode(QuickPID::Control::automatic);
                     tState = getTempState(batry.temperature, batry.ecoTemp, batry.boostTemp);
-                    Serial.print(" V: Economy mode ");
-
-
-                    red.setDelay(10000, 0);
+                    Serial.print(" V: Eco ");
+                    red.setDelay(1000, 0);
                     green.setDelay(0, 1000);
                     yellow.setDelay(1000);
 
-                    if(tState != SUBZERO && tState != TEMP_WARNING ) { charger(true); }
+                    if(tState != SUBZERO && tState != TEMP_WARNING ) 
+                        { charger(true); }
 
                 // Eco mode logic (Normal operation)
-
                 break;
             case BOOST:
-                    Serial.print(" V: Boost mode ");
+                    Serial.print(" V: Boost ");
+                    heaterPID.SetMode(QuickPID::Control::automatic);
                     tState = getTempState(batry.temperature, batry.ecoTemp, batry.boostTemp);
 
-                    if ((tState != SUBZERO && tState != TEMP_WARNING ) && batry.voltBoostActive) { charger(true);}
-                    else { charger(false);  }
-                    Serial.println(tState);
-
-                    red.setDelay(10000, 0);
+                    if ((tState != SUBZERO && tState != TEMP_WARNING ) && batry.voltBoostActive)   // if not in cold or warning state, and boost is active
+                        { charger(true); }                                                         // then charge
+                    else 
+                        { charger(false); }
+                    
+                    red.setDelay(1000, 0);
                     yellow.setDelay(1000, 0);
                     green.setDelay(1000);
 
@@ -305,120 +333,126 @@ void Battery::handleBatteryControl() {
                 break;
             case VBOOST_RESET:
 
-                    Serial.print(" V: VBoost_reset mode ");
+                    Serial.print(" V: Boost_reset ");
+                    heaterPID.SetMode(QuickPID::Control::automatic);
                     tState = getTempState(batry.temperature, batry.ecoTemp, batry.boostTemp);
-                    if (!batry.voltBoostActive) { charger(false); }
-                    Serial.print(tState);
-                    batry.voltBoostActive = false;
+
+                    if (!batry.voltBoostActive) 
+                        { charger(false); }
+
+                    if(getActivateVoltageBoost()) {
+                        activateVoltageBoost(false);
+                    }
 
 
-                    red.setDelay(10000, 0);
+                    red.setDelay(1000, 0);
                     yellow.setDelay(1000, 0);
                     green.setDelay(0, 1000);
 
                 // Boost logic (override eco mode, heat more -> more power. 
                 break;
-            }
+        }
 
-            // TempState tState = getTempState(batry.temperature, batry.boostTemp, batry.ecoTemp, batry.tempBoostActive);
-
+    
         switch (tState) {
             case SUBZERO:
 
-                red.setDelay(0, 10000);
+                 red.setDelay(0, 1000);
 
-                Serial.print(" SubZero temperature detected ");
+                 Serial.print(" T:SubZero ");
                 charger(false);
                 // Logic for cold temperatures (disable charging, red led on!) - SLOW HEATING
 
-                break;
+                 break;
             case ECO_TEMP:
 
-                Serial.print(" Eco temp. PID: ");
+                 Serial.print(" T:Eco ");
 
-                Serial.print(" in:  ");
-                Serial.print(pidInput);
-                Serial.print(" Out:  ");
-                Serial.print(pidOutput);
-                Serial.print(" Set:  ");               
-                Serial.print(pidSetpoint);
-
-
-                if(batry.tempBoostActive) {
-                    batry.wantedTemp = batry.boostTemp;
-                }
-                else {
-                batry.wantedTemp = batry.ecoTemp;
-                }
-
-
-                // Normal battery operations
-                break;
-            case BOOST_TEMP:
-                Serial.print(" Boost temperature detected ");
-
-                if(batry.tempBoostActive) {
+                 if(batry.tempBoostActive) {
                     batry.wantedTemp = batry.boostTemp;
                 }
                 else {
                     batry.wantedTemp = batry.ecoTemp;
                 }
 
-                // Boost heating logic, reset boost mode once temp is achieved
+
+                  // Normal battery operations
+                break;
+            case BOOST_TEMP:
+                Serial.print(" T:Boost ");
+
+                 if(batry.tempBoostActive) {
+                    batry.wantedTemp = batry.boostTemp;
+                }
+                else {
+                    batry.wantedTemp = batry.ecoTemp;
+                }
+
+                 // Boost heating logic, reset boost mode once temp is achieved
                 break;
             case OVER_TEMP:
 
                 batry.wantedTemp = batry.ecoTemp;
                 batry.tempBoostActive = false;
-                Serial.print(" Over temperature detected ");
+                Serial.print(" T:BoostReset ");
 
-                break;
+                 break;
             case TEMP_WARNING:
 
                 charger(false);
                 batry.wantedTemp = 0;
 
-                // Logic for temperature warning (e.g., reduce heating goal)
-                Serial.println(" Temperature warning detected ");
+                 // Logic for temperature warning (e.g., reduce heating goal)
+                Serial.print(" T:Warn ");
                 heaterPID.SetMode(QuickPID::Control::manual);
                 batry.wantedTemp = 0;
                 controlHeaterPWM(0);
-            
 
                 break;
             case TBOOST_RESET:
 
-                // heaterPID.SetOutputLimits(0, 255);
+                 // heaterPID.SetOutputLimits(0, 255);
                 // heaterPID.SetMode(QuickPID::Control::automatic);
-
-                Serial.println(" Boost reset temperature detected ");
+                Serial.print(" T:Boost_reset ");
                 batry.wantedTemp = batry.ecoTemp;
                 batry.tempBoostActive = false;
-                // Logic for resetting boost mode (e.g., turn off boost mode)
+               // Logic for resetting boost mode (e.g., turn off boost mode)
 
-                break;
-            case DEFAULT_TEMP:
-                Serial.println(" Default state ");
-                batry.wantedTemp = batry.ecoTemp;
+            break;
 
-                break;
-        }
+           case DEFAULT_TEMP:
+               Serial.print(" T:Fail ");
+               heaterPID.SetMode(QuickPID::Control::manual);
+               controlHeaterPWM(0);
+               batry.wantedTemp = 0;
+            break;
+    }
 
-        Serial.print(" Vstate: ");
-        Serial.print(static_cast<int>(vState));
-        batry.vState = static_cast<int>(vState);
-        Serial.print(", Tstate: ");
-        Serial.println(static_cast<int>(tState));
-        batry.tState = static_cast<int>(tState);
-        lastVoltageStateTime = currentMillis;
-
+    Serial.print("Kp: ");
+    Serial.print(Battery::kp);
+    Serial.print(" ");
+    Serial.print("Ki: ");
+    Serial.print(Battery::ki);
+    Serial.print(" ");
+    Serial.print(tState);
+    Serial.print(" ");
+    Serial.print(vState);
+    Serial.print(" in:  ");
+    Serial.print(pidInput);
+    Serial.print(" Out:  ");
+    Serial.print(pidOutput);
+    Serial.print(" Set:  ");               
+    Serial.print(pidSetpoint);        
+    Serial.print(" Vstate: ");
+    Serial.print(static_cast<int>(vState));
+    batry.vState = static_cast<int>(vState);
+    Serial.print(", Tstate: ");
+    Serial.println(static_cast<int>(tState));
+    batry.tState = static_cast<int>(tState);
+    lastVoltageStateTime = currentMillis;
     }
 }
 /*
-
-
-
-
 
 
     State Machine for battery voltage levels and temperature levels
@@ -429,25 +463,23 @@ void Battery::handleBatteryControl() {
 Battery::VoltageState Battery::getVoltageState(     int voltagePrecent, 
                                                     int ecoPrecentVoltage, 
                                                     int boostPrecentVoltage) {
-    if (voltagePrecent >= 10 && voltagePrecent < 30) {
-        return LAST_RESORT;  
-    } else if (voltagePrecent < 30) {
-        return LOW_VOLTAGE_WARNING;
+    if (voltagePrecent >= 10 && voltagePrecent < 20) {
+        return LAST_RESORT;                                                             // Lets shut all down
+    } else if (voltagePrecent >= 20 && voltagePrecent < 30) {
+        return LOW_VOLTAGE_WARNING;                                                     // lets warn the user with leds and even lower P value
     } else if (voltagePrecent >= 30 && voltagePrecent < 50) {
-        return PROTECTED;
+        return PROTECTED;                                                               // lets protect the battery by lowering the P term
     } else if (voltagePrecent >= 50 && voltagePrecent < ecoPrecentVoltage) {
-        return ECONOMY;
+        return ECONOMY;                                                                 // Normal operation
     } else if (voltagePrecent >= ecoPrecentVoltage && voltagePrecent < boostPrecentVoltage) {
-        return BOOST;
+        return BOOST;                                                                    // above economy voltage, in the wanted boost area
     } else if (voltagePrecent >= boostPrecentVoltage) {
         return VBOOST_RESET;  // Add boost reset state
-    } else {
-        return LOW_VOLTAGE_WARNING;  // Fallback state
+    } else {                                                                             // lets reset the boost mode
+        return LAST_RESORT;  // Fallback state
     }
 }
 /*
-
-
 
 
 
@@ -455,8 +487,8 @@ Battery::VoltageState Battery::getVoltageState(     int voltagePrecent,
     for the battery control.
 */
 Battery::TempState Battery::getTempState(   float temperature, 
-                                            int boostTemp, 
-                                            int ecoTemp) {
+                                            int ecoTemp, 
+                                            int boostTemp) {
         if (temperature < 0) {
             return SUBZERO;
         } else if (temperature < ecoTemp) {
@@ -472,8 +504,6 @@ Battery::TempState Battery::getTempState(   float temperature,
         }
 }
 /*
-
-
 
 
     Battery Load and Save function calls, to store settings in 
@@ -499,14 +529,7 @@ void Battery::saveSettings() {
     preferences.putUChar("resistance",   constrain(batry.resistance, 1, 255));
     preferences.putUChar("maxPower",     constrain(batry.maxPower, 1, 255));
     preferences.putString("myname",      String(batry.myname));
-    preferences.putBool("vboost",        batry.voltBoostActive);
-
-/*
-    for (int i = 0; i < 13; i++) preferences.putUChar(("username" + String(i)).c_str(), settings.username[i]);
-    for (int i = 0; i < 13; i++) preferences.putUChar(("password" + String(i)).c_str(), settings.password[i]);
-*/
-
-
+    preferences.putUChar("pidP",         constrain(batry.pidP, 1, 50));
     preferences.end(); // Close preferences, commit changes
 }
 
@@ -514,14 +537,15 @@ void Battery::loadSettings() {
     preferences.begin("btry", false); // Open preferences with namespace "battery_settings" 
     // Sort batry related components
 
-    String myname = preferences.getString("myname", "default");
-    myname.toCharArray(batry.myname, sizeof(batry.myname));
+    batry.myname = preferences.getString("myname", "Helmi");
+    Serial.print("Battery name loaded from memory: ");
+    Serial.println(batry.myname);
 
     batry.size = constrain(preferences.getUChar("size", 1), 7, 20);
     Serial.print("Battery size loaded from memory: ");
     Serial.println(batry.size);
 
-    batry.temperature = constrain(preferences.getFloat("temperature", 1), float(-50), float(120));
+    batry.temperature = constrain(preferences.getFloat("temperature", float(2)), float(-50), float(120));
     Serial.print("Battery temperature loaded from memory: ");
     Serial.println(batry.temperature);
 
@@ -530,7 +554,7 @@ void Battery::loadSettings() {
     Serial.println(batry.voltageInPrecent);
 
     batry.resistance = constrain(preferences.getUChar("resistance", 1), 2, 255);
-    Serial.print("Battery resistance loaded from memory: ");
+    Serial.print("Battery resistanloadSce loaded from memory: ");
     Serial.println(batry.resistance);
 
     batry.ecoVoltPrecent = constrain(preferences.getUChar("ecoVolt", 1), 5, 255);
@@ -573,11 +597,13 @@ void Battery::loadSettings() {
     Serial.print("Battery volt boost loaded from memory: ");
     Serial.println(batry.voltBoostActive);
 
+    batry.pidP = constrain(preferences.getUChar("pidP", 1), 1, 50);
+    Serial.print("Battery PID P value loaded from memory: ");
+    Serial.println(batry.pidP);
+
     preferences.end(); // Close preferences
 }
 /*
-
-
 
 
 
@@ -594,19 +620,24 @@ void Battery::readVoltage(unsigned long intervalSeconds) {
     if (currentMillis - voltageMillis >= intervalMillis) {
         voltageMillis = currentMillis;
 
+        
         if(!batry.chargerState) {
         gpio_set_direction(GPIO_NUM_25, GPIO_MODE_OUTPUT);
         gpio_set_level(GPIO_NUM_25, HIGH); 
-        delay(5);
+        delay(4);
         }
+        
 
         u_int32_t voltVal = adc1_get_raw(ADC_CHANNEL);
         u_int32_t calibratedVoltage = esp_adc_cal_raw_to_voltage(voltVal, &characteristics) * 30.81;
 
+
+        
         if(!batry.chargerState) {
         gpio_set_direction(GPIO_NUM_25, GPIO_MODE_OUTPUT);
         gpio_set_level(GPIO_NUM_25, LOW);
         }
+    
 
 
         if (firstRun) {
@@ -673,9 +704,6 @@ void Battery::readVoltage(unsigned long intervalSeconds) {
 /*
 
 
-
-
-
     Battery unit conversion, from precentage to millivoltage.
         a) To avoid floats and doubles, we multiply by 1000 to get the millivoltage.
         b)to get faster state machine looping, without too much overhead.
@@ -702,16 +730,12 @@ float Battery::btryToVoltage(int precent) {
 /*
 
 
-
-
-
 Lets convert the given milliVoltage to precentage at given series 
 */
 int Battery::getVoltageInPercentage(uint32_t milliVoltage) {
     uint32_t minVoltage = 3000;  // Minimum voltage in millivolts (3V)
     uint32_t maxVoltage = 4200;  // Maximum voltage in millivolts (4.2V)
-    // Serial.print("MilliVoltage:  ");
-    // Serial.println(milliVoltage);
+
     milliVoltage = constrain(milliVoltage, 25000, 100000);
     if (milliVoltage < (minVoltage * batry.size)) {
         return 0;  // Below minimum voltage, 0% usable area
@@ -730,9 +754,7 @@ int Battery::getVoltageInPercentage(uint32_t milliVoltage) {
         return result;
     }
 }
-
 /*
-
 
 
     Batterys Depth of Discharge percentage return.
@@ -743,10 +765,6 @@ int Battery::getBatteryDODprecent() {
     return batry.voltageInPrecent;
 }
 /*
-
-
-
-
 
     Setters and Getters for battery economy voltage settings.
         ESPUI interface for the user to set the battery voltage settings.
@@ -766,8 +784,6 @@ uint8_t Battery::getEcoPrecentVoltage() {
     return batry.ecoVoltPrecent;
 }
 /*
-
-
 
 
 
@@ -791,23 +807,11 @@ uint8_t Battery::getBoostPrecentVoltage() {
 /*
 
 
-
-
-
     Battery DS18B20 temp sensor handling. 
 
     Maybe have some moving avarage sum, where we can get the average temperature over a period of time.
     This is to compare the reading, if it differs from the previous reading, we can have a failsafe.
-
 */
-
-
-
-
-bool Battery::isTemperatureSafe() {
-    return currentTemperature != 255;
-}
-
 float Battery::getTemperature() {
     float tempReturn = 0.0f;
     tempReturn = batry.temperature;
@@ -819,10 +823,6 @@ float Battery::getTemperature() {
 }   
 
 /*
-
-
-
-
 
 
 
@@ -845,9 +845,6 @@ uint8_t Battery::getNominalString() {
 /*
 
 
-
-
-
     Setter and Getter for battery boost temperature settings. 
         - ESPUI interface for the user to set the battery temperature settings.
 */
@@ -856,15 +853,13 @@ uint8_t Battery::getEcoTemp() {
 }
 
 bool Battery::setEcoTemp(int ecoTemp) {
-    if(ecoTemp > 4 && ecoTemp < 30 && ecoTemp < batry.boostTemp) {
+    if(ecoTemp > 0 && ecoTemp < 31 && ecoTemp < batry.boostTemp) {
         batry.ecoTemp = ecoTemp;
         return true;
     }
     else return false;
 }
 /*
-
-
 
 
     SetGetter for Temperature boost settings. 
@@ -875,15 +870,13 @@ uint8_t Battery::getBoostTemp() {
 }
 
 bool Battery::setBoostTemp(int boostTemp) {
-    if(boostTemp > 10 && boostTemp < 40 && boostTemp > batry.ecoTemp) {
+    if(boostTemp > 9 && boostTemp < 41 && boostTemp > batry.ecoTemp) {
         batry.boostTemp = boostTemp;
         return true;
     }
     else return false;
 }
 /*
-
-
 
 
     Temp and Voltage boost settings. 
@@ -895,14 +888,16 @@ bool Battery::setBoostTemp(int boostTemp) {
 */
 bool Battery::activateTemperatureBoost(bool tempBoostActive) {
     if(tempBoostActive) {
-            batry.tempBoostActive = true;
-            preferences.begin("btry", false); // Open preferences with namespace "battery_settings" 
-            preferences.putBool("tboost", true);
-            preferences.end(); // Close preferences
-            return true;
+        batry.tempBoostActive = true;
+        heaterPID.SetTunings(ap, ai, ad);
+        preferences.begin("btry", false); // Open preferences with namespace "battery_settings" 
+        preferences.putBool("tboost", true);
+        preferences.end(); // Close preferences
+        return true;
     }
     else if(!tempBoostActive ) {
         batry.tempBoostActive = false;
+        heaterPID.SetTunings(kd, ki, kd);
         preferences.begin("btry", false); // Open preferences with namespace "battery_settings"
         preferences.putBool("tboost", false);
         preferences.end(); // Close preferences
@@ -932,6 +927,7 @@ bool Battery::activateVoltageBoost(bool voltBoostActive) {
         preferences.begin("btry", false); // Open preferences with namespace "battery_settings"
         preferences.putBool("vboost", false);
         preferences.end(); // Close preferences
+        charger(false);
         return true;
     }
     else return false;
@@ -944,7 +940,6 @@ bool Battery::getActivateVoltageBoost() {
         return false;
 }
 
-
 float Battery::calculateChargeTime(int initialPercentage, int targetPercentage) {
     // Calculate the charge needed in Ah
     float chargeNeeded = batry.capct * ((targetPercentage - initialPercentage) / (float)100.0);
@@ -956,10 +951,9 @@ float Battery::calculateChargeTime(int initialPercentage, int targetPercentage) 
     return timeRequired;
 }
 
-
     // Setter function to set charger current and battery capacity
 bool Battery::setCharger(int chargerCurrent) {
-    if(chargerCurrent > 0 && chargerCurrent < 10) {
+    if(chargerCurrent > 0 && chargerCurrent < 11) {
         batry.chrgr = chargerCurrent;
         return true;
     }
@@ -986,15 +980,14 @@ int Battery::getCapacity()  {
     return batry.capct;
 }
 
-
 /*
+
     // Getter function to get charger current and battery capacity
     uint32_t Battery::getCharger(uint32_t chargerCurrent, uint32_t batteryCapacity)  {
         return chargerCurrent = batry.chrgr, batteryCapacity = batry.capct;
     }
 
 */
-/**/
 
 uint32_t Battery::determineBatterySeries(uint32_t measuredVoltage_mV) {
     const uint32_t voltagePerCell_mV = 4200; // 4.2V on 4200 millivolttia
@@ -1023,63 +1016,50 @@ float Battery::getCurrentVoltage() {
 }
 
 int Battery::getBatteryApprxSize() {
-
     return batry.sizeApprx;
 }
 
 void Battery::charger(bool state) {
     if (state) {
-
         gpio_set_direction(GPIO_NUM_25, GPIO_MODE_OUTPUT);
         gpio_set_level(GPIO_NUM_25, HIGH);
-        Serial.print (" Charger: ON ");
+        Serial.print (" Chrgr: ON ");
         batry.chargerState = true;
-
-        /*
-        
-        pinMode(25, OUTPUT);
-        digitalWrite(25, HIGH);
-        */
 
     } else {
 
         gpio_set_direction(GPIO_NUM_25, GPIO_MODE_OUTPUT);
         gpio_set_level(GPIO_NUM_25, LOW);
-        Serial.println(" Charger: OFF ");
+        Serial.print(" Chrgr: OFF ");
         batry.chargerState = false;
-
-        /*
-        Serial.println("Charger disabled");
-        pinMode(25, OUTPUT);
-        digitalWrite(25, LOW);
-        */
     }
 }
+/*
 
-void Battery::saveHostname(const char* hostname) {
+
+    Is Valid Hostname function, to check if the given hostname is valid.
+*/
+bool Battery::saveHostname(String hostname) {
     preferences.begin("batry", false);
     preferences.putString("myname", hostname);
     preferences.end();
-    strncpy(batry.myname, hostname, sizeof(batry.myname) - 1);
-    batry.myname[sizeof(batry.myname) - 1] = '\0'; // Ensure null-termination
+    batry.myname = String(hostname);
+    return true;
 }
 
-void Battery::loadHostname() {
+
+
+bool Battery::loadHostname() {
     preferences.begin("batry", true);
-    String hostname = preferences.getString("myname", "helper");
+    String hostname = preferences.getString("myname", "Helmi");
     preferences.end();
-    strncpy(batry.myname, hostname.c_str(), sizeof(batry.myname) - 1);
-    batry.myname[sizeof(batry.myname) - 1] = '\0'; // Ensure null-termination
-}
-
-void Battery::updateHostname(const char* newHostname) {
-    saveHostname(newHostname);
-    // Additional code to apply the new hostname if needed
+    batry.myname = hostname;
+    return true;
 }
 
 // Setter for battery resistance
 bool Battery::setResistance(uint8_t resistance) {
-    if (resistance > 10 && resistance < 256) {
+    if (resistance > 10 && resistance < 255) {
         batry.resistance = resistance;
         return true;
     } else {
@@ -1092,9 +1072,8 @@ int Battery::getResistance() {
     return batry.resistance;
 }
 
-
 void Battery::adjustHeaterSettings() {
-    const float maxPower = 25.0; // Maximum power in watts
+    const float maxPower = 30.0; // Maximum power in watts
 
     // Calculate the maximum allowable power based on the resistance and voltage
     float power = (batry.size * float(3.7) * batry.size * float(3.7)  ) / batry.resistance;
@@ -1102,18 +1081,45 @@ void Battery::adjustHeaterSettings() {
     // Calculate the duty cycle needed to cap the power at maxPower
     float dutyCycle = maxPower / power;
 
+    if (dutyCycle > 1) {
+        dutyCycle = 1;
+    }
+
     // Calculate the output limits for QuickPID
-    batry.maxPower  = static_cast<int>(dutyCycle * 255);
+    batry.maxPower  = (dutyCycle * 255);
 
     // Ensure the output limit does not exceed the maximum allowable current
     // Ensure the output limit does not exceed the maximum allowable current
     if (batry.maxPower > 255) {
-        batry.maxPower = 255;
+        batry.maxPower = 254;
     }
     if (batry.maxPower < 20) {
         batry.maxPower = 20;
     }
 
     // Adjust the QuickPID output limits
-    heaterPID.SetOutputLimits(0, batry.maxPower);
+    heaterPID.SetOutputLimits(float(0), float(batry.maxPower));
+}
+
+bool Battery::setPidP(int p) {
+    if (p >= 0 && p < 50) {
+        batry.pidP = p;
+        preferences.begin("batry", false);
+        preferences.putInt("pidP", constrain(p, 0, 50));
+        preferences.end();
+        heaterPID.SetTunings(float(batry.pidP), float(0.003), 0);
+        // heaterPID.SetProportionalMode(float(batry.pidP));      
+        return true;
+    } else {
+        return false;
+    }
+}
+
+// Get function for PID's P value
+int Battery::getPidP() {
+    return batry.pidP;
+}
+
+bool Battery::getChargerStatus() {
+    return batry.chargerState;
 }

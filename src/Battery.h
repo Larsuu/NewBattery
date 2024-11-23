@@ -19,19 +19,19 @@
 #define ADC_ATTEN ADC_ATTEN_DB_11
 
 #define PWM_CHANNEL 4
-#define PWM_FREQ 200
+#define PWM_FREQ 100
 #define PWM_RESOLUTION 8
 
 struct batterys {
 
-    char         myname[13];
+    String      myname;
     uint8_t     size;
     uint8_t     sizeApprx;
     uint8_t     wantedTemp;
-    uint32_t     mV_max;
-    uint32_t     mV_min;
-    float     temperature;
-    uint32_t     milliVoltage;
+    uint32_t    mV_max;
+    uint32_t    mV_min;
+    float       temperature;
+    uint32_t    milliVoltage;
     uint8_t     voltageInPrecent;
     uint8_t     ecoVoltPrecent;
     uint8_t     boostVoltPrecent;
@@ -40,37 +40,20 @@ struct batterys {
     uint8_t     resistance;
     uint8_t     capct;
     uint8_t     chrgr;
-    uint8_t      vState;
-    uint8_t      tState;
-    uint8_t      previousVState;
-    uint8_t      previousTState;
-    uint8_t      maxPower;
+    uint8_t     vState;
+    uint8_t     tState;
+    uint8_t     previousVState;
+    uint8_t     previousTState;
+    uint8_t     maxPower;
+    uint8_t     pidP;
     bool        chargerState;
     bool        voltBoostActive;
     bool        tempBoostActive;
     };
 
-
-struct Settings {
-        bool    httpAccess;
-        bool    initialSetup;
-        int     clamp;
-        int     kp;
-        bool    mqtt;
-        bool    accessPointMode;
-        char    username[13];
-        char    password[13];
-};
-
-
 class Battery {
 public:
-
     static batterys batry;
-    // static statesLog batteryLog;
-    // LogEntry entry;
-    // static LogEntry entry;
-
     Preferences preferences;
 
     Battery(int tempSensor = 33, 
@@ -80,23 +63,19 @@ public:
             int greenLed = 4, 
             int yellowLed = 18, 
             int redLed = 17);
-
     void begin();
     void loop();
     void setup();
 
+    
     float readTemperature();
-
     void handleBatteryControl();    // Main control logic for battery
-
     void saveSettings();
     void loadSettings();
 
     esp_adc_cal_characteristics_t characteristics;
 
     float getTemperature();         // Returns the current battery temperature
-    
-    bool isTemperatureSafe();
     int getBatteryDODprecent();
 
     int getVoltageInPercentage(uint32_t milliVoltage);
@@ -108,6 +87,12 @@ public:
 
     bool setup_done = false;
     unsigned long dallasTime = 0;
+
+    bool setPidP(int pidP);
+    int getPidP();
+
+    bool getChargerStatus();
+    void charger(bool state);
 
     uint8_t getNominalString();
     bool setNominalString(int size);
@@ -165,11 +150,10 @@ public:
 
     void addLogEntry(int voltState, int tempState);
 
-    void charger(bool state);
+    bool isValidHostname(const char* hostname);
 
-    void saveHostname(const char* hostname);
-    void loadHostname();
-    void updateHostname(const char* newHostname);
+    bool saveHostname(String hostname);
+    bool loadHostname();
 
 /*
  *  Private methods
@@ -198,11 +182,8 @@ private:
         TBOOST_RESET            =  5,
         DEFAULT_TEMP            =  6
     };
-
-
-
-    Settings settings;
     
+    /**/
     // static Battery* instance; 
     int tempSensor;   // Pin for voltage reading
     int voltagePin;   // Pin for voltage reading
@@ -223,11 +204,15 @@ private:
 
     // PID variables
     float pidInput, pidOutput, pidSetpoint; 
-    float kp = 3;
-    float ki = 0;
+    float kp = 5;
+    float ki = 0.003;
     float kd = 0;
     float currentTemp, wantedTemp;
 
+    float ap = 30;
+    float ai = 0.03;
+    float ad = 0;
+    
     QuickPID heaterPID;
     void updateHeaterPID();
 
@@ -240,8 +225,8 @@ private:
 
     // getTempState
     TempState getTempState(         float temperature, 
-                                    int boostTemp, 
-                                    int ecoTemp);
+                                    int ecoTemp, 
+                                    int boostTemp);
 
     // these are the final countdown voltage!! 
     uint32_t currentMilliVoltage;
