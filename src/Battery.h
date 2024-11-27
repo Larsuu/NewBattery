@@ -10,6 +10,7 @@
 #include <ESPUI.h>
 #include <esp_adc_cal.h>
 #include <ArduinoJson.h>
+#include <sTune.h>
 
 #define V_REF 1121
 #define MOVING_AVG_SIZE 5
@@ -21,6 +22,7 @@
 #define PWM_CHANNEL 4
 #define PWM_FREQ 100
 #define PWM_RESOLUTION 8
+
 
 struct batterys {
 
@@ -63,12 +65,13 @@ public:
             int greenLed = 4, 
             int yellowLed = 18, 
             int redLed = 17);
+
     void begin();
     void loop();
     void setup();
 
     
-    float readTemperature();
+    bool readTemperature();
     void handleBatteryControl();    // Main control logic for battery
     void saveSettings();
     void loadSettings();
@@ -155,15 +158,23 @@ public:
     bool saveHostname(String hostname);
     bool loadHostname();
 
+        // PID variables
+    float pidInput, pidOutput, pidSetpoint; 
+    float kp = 0;
+    float ki = 0;
+    float kd = 0;
+
+    float ap = 100;
+    float ai = 75;
+    float ad = 0;
+
+
 /*
  *  Private methods
  *
  * These are the private methods that are used in the battery.cpp file
  */ 
-
 private: 
-
-
     enum VoltageState {
         LAST_RESORT             =   0,
         LOW_VOLTAGE_WARNING     =   1,  
@@ -172,7 +183,6 @@ private:
         BOOST                   =   4,  
         VBOOST_RESET            =   5   
     };
-
     enum TempState {
         SUBZERO                 =  0,
         ECO_TEMP                =  1,
@@ -185,15 +195,15 @@ private:
     
     /**/
     // static Battery* instance; 
-    int tempSensor;   // Pin for voltage reading
-    int voltagePin;   // Pin for voltage reading
-    int heaterPin;    // Pin for controlling the heater
-    int chargerPin = 25;   // Pin for controlling the charger
-    int greenLed;     // Pin for green LED
-    int yellowLed;    // Pin for yellow LED
-    int redLed;       // Pin for red LED
-    float currentTemperature;  // ??
-    bool temperatureFailsafe;   // ??
+    // int tempSensor;   // Pin for voltage reading
+    int voltagePin  = 39;   // Pin for voltage reading
+    int heaterPin   = 32;    // Pin for controlling the heater
+    int chargerPin  = 25;   // Pin for controlling the charger
+    // int greenLed;     // Pin for green LED
+    // int yellowLed;    // Pin for yellow LED
+    // int redLed;       // Pin for red LED
+    // float currentTemperature;  // ??
+    // bool temperatureFailsafe;   // ??
 
     // LED blinkers
     Blinker red;
@@ -202,18 +212,32 @@ private:
     OneWire oneWire; // Create OneWire instance
     DallasTemperature dallas; // Create DallasTemperature instance
 
+/*
     // PID variables
     float pidInput, pidOutput, pidSetpoint; 
-    float kp = 5;
-    float ki = 0.003;
+    float kp = 50;
+    float ki = 50;
     float kd = 0;
-    float currentTemp, wantedTemp;
 
-    float ap = 30;
-    float ai = 0.03;
+    float ap = 100;
+    float ai = 75;
     float ad = 0;
+*/
+
+    // user settings
     
+    uint32_t settleTimeSec = 20;
+    uint32_t testTimeSec = 360;
+    const uint16_t samples = 500;
+    const float inputSpan = 40;
+    const float outputSpan = 255;
+    float outputStart = 0;
+    float outputStep = 50;
+    float tempLimit = 40;
+        
     QuickPID heaterPID;
+    sTune tuner;
+
     void updateHeaterPID();
 
     void controlHeaterPWM(uint8_t dutycycle);

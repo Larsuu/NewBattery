@@ -6,8 +6,6 @@
 #include <string>
 #include <functional>
 #include <PubSubClient.h>
-#include <WiFi.h>
-// #include <DNSServer.h>
 #include <ESPUI.h>
 
 #if defined(ESP32)
@@ -193,12 +191,11 @@ void setUpUI() {
   tempLabel =       ESPUI.addControl(Label, "TempLabel", "0", None, vertgroupswitcher);
                     ESPUI.setElementStyle(tempLabel , switcherLabelStyle);
     
+  quickPanelVoltage = ESPUI.addControl(Label, "QuickbtrToVolts", "0", None, vertgroupswitcher);  // NewlineLabel
+                      ESPUI.setElementStyle(quickPanelVoltage, switcherLabelStyle);
 
   voltLabel =       ESPUI.addControl(Label, "VoltLabel", "0", None, vertgroupswitcher);
                     ESPUI.setElementStyle(voltLabel, switcherLabelStyle);
-
-  quickPanelVoltage = ESPUI.addControl(Label, "QuickbtrToVolts", "0", None, vertgroupswitcher);  // NewlineLabel
-                      ESPUI.setElementStyle(quickPanelVoltage, switcherLabelStyle);
 
                       ESPUI.setElementStyle(ESPUI.addControl(Label, "emptyLine", "", None, vertgroupswitcher), clearLabelStyle);  // NewlineLabel
   
@@ -516,6 +513,7 @@ ESPUI.setElementStyle(saveButton, "background-color: #d3d3d3; width: 20%; text-a
     ESPUI.updateControlValue(pidPNum, String(batt.getPidP()));
     ESPUI.updateControlValue(nameLabel, String(hostname));
 
+
   //Add a callback to the main selector to print the selected value
   //This is a good example of how to use the "param" argument in the callback
   //to pass additional information to the callback function.
@@ -824,18 +822,18 @@ void paramCallback(Control* sender, int type, int param)
 
 
 unsigned long lastMsg = 0;
-const long interval = 60000; // 1 minute
+const long interval = 15000; // 1 minute
 unsigned long mqttmillis = 0;
 
 
 void reconnect() {
-        Serial.print("Attempting MQTT connection...");
+        // Serial.print("Attempting MQTT connection...");
         if (client.connect("ESP32Client", mqtt_user, mqtt_password)) {
-            Serial.println("connected");
+            // Serial.println("connected ");
         } else {
-            Serial.print("failed, rc=");
+            //Serial.print("failed, rc=");
             Serial.print(client.state());
-            Serial.println(" try again in 5 seconds");
+            //Serial.println(" try again in 5 seconds");
         }
     }
 
@@ -848,6 +846,14 @@ void publishMessage() {
 
     sprintf(buffer, "%u", Battery::batry.size);
     sprintf(topicBuffer, "battery/%s/size", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
+
+    sprintf(buffer, "%u", Battery::batry.pidP);
+    sprintf(topicBuffer, "battery/%s/pidP", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
+
+    sprintf(buffer, "%u", (millis() / uint32_t(60000)));
+    sprintf(topicBuffer, "battery/%s/millis", Battery::batry.myname);
     client.publish(topicBuffer, buffer);
     
     sprintf(buffer, "%u", Battery::batry.sizeApprx);
@@ -913,16 +919,40 @@ void publishMessage() {
     sprintf(buffer, "%u", Battery::batry.wantedTemp);
     sprintf(topicBuffer, "battery/%s/wantedTemp", Battery::batry.myname);
     client.publish(topicBuffer, buffer);
-    
+
+    sprintf(buffer, "%.3f", batt.kd);
+    sprintf(topicBuffer, "battery/%s/pid/kd", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
+
+    sprintf(buffer, "%.3f", batt.ki);
+    sprintf(topicBuffer, "battery/%s/pid/ki", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
+
+    sprintf(buffer, "%.3f", batt.kp);
+    sprintf(topicBuffer, "battery/%s/pid/kp", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
+
+    sprintf(buffer, "%.2f", batt.pidInput);
+    sprintf(topicBuffer, "battery/%s/pid/pidInput", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
+
+    sprintf(buffer, "%.2f", batt.pidOutput);
+    sprintf(topicBuffer, "battery/%s/pid/pidOutput", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
+
+    sprintf(buffer, "%.2f", batt.pidSetpoint);
+    sprintf(topicBuffer, "battery/%s/pid/pidSetpoint", Battery::batry.myname);
+    client.publish(topicBuffer, buffer);
+       
     sprintf(topicBuffer, "battery/%s/voltBoostActive", Battery::batry.myname);
     client.publish(topicBuffer, Battery::batry.voltBoostActive ? "true" : "false");
     
     sprintf(topicBuffer, "battery/%s/tempBoostActive", Battery::batry.myname);
     client.publish(topicBuffer, Battery::batry.tempBoostActive ? "true" : "false");
     
-    Serial.println("Battery data published");
+    // Serial.println("Battery data published");
     client.disconnect();
-    Serial.println("MQTT disconnected"); 
+    // Serial.println("MQTT disconnected"); 
   }
 
 void loop() {
