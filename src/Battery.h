@@ -48,8 +48,9 @@
 #define PWM_RESOLUTION 8
 
 
-struct batterys {
 
+// Old one get rid of! 
+struct batterys {
     String      myname;
     uint8_t     size;
     uint8_t     sizeApprx;
@@ -77,19 +78,73 @@ struct batterys {
     bool        tempBoostActive;
     };
 
+
+
 class Battery {
-public:
 
-    static batterys batry;
-    Preferences preferences;
 
-    Battery(const int tempSensor = TEMP_SENSOR, 
-            const int voltagePin = VOLTAGE_PIN, 
-            const int heaterPin = HEATER_PIN,       // heater and chareger swapped in the p
-            const int chargerPin = CHARGER_PIN,     // heater and chareger swapped in the p
-            const int greenLed = GREEN_LED, 
-            const int yellowLed = YELLOW_LED, 
-            const int redLed = RED_LED);
+
+
+
+
+
+
+
+
+
+
+ private: 
+   struct batteryState {
+    // basic info
+    String      myname              = "Helmi";
+    float       temperature         = 0.0f;
+    uint32_t    milliVoltage        = 0;
+    uint8_t     size                = 7;
+    uint8_t     sizeApprx           = 7;                  //autodetect
+
+
+    // state related
+    uint8_t     previousVState      = 0;
+    uint8_t     previousTState      = 0;
+    uint8_t     vState              = 0;
+    uint8_t     tState              = 0;
+    uint8_t     ecoTemp             = 15;
+    uint8_t     boostTemp           = 25;
+
+    uint8_t     wantedTemp          = 15;
+    uint32_t    mV_max              = 100000;
+    uint32_t    mV_min              = 10000;
+
+    // lets get rid of these -- just too much of a hassel
+    uint8_t     voltageInPrecent;
+    uint8_t     ecoVoltPrecent;
+    uint8_t     boostVoltPrecent;
+
+    uint8_t     resistance          = 50;
+    uint8_t     capct               = 12;
+    uint8_t     chrgr               = 2;
+
+    uint8_t     maxPower;
+    float       pidP                = 1.00;
+    float       pidI                = 0.02;
+    float       pidD                = 0.02;
+
+    bool        chargerState        = false;
+    bool        voltBoost           = false;
+    bool        tempBoost           = false;
+};
+
+    static Battery* instance; 
+
+    batteryState state;
+    int tempSensor = TEMP_SENSOR;   // Pin for voltage reading
+    int voltagePin = VOLTAGE_PIN;   // Pin for voltage reading
+    int heaterPin = HEATER_PIN;    // Pin for controlling the heater
+    int chargerPin = CHARGER_PIN;   // Pin for controlling the charger
+    int greenLed = GREEN_LED;      // Pin for the green LED
+    int yellowLed = YELLOW_LED;    // Pin for the yellow LED
+    int redLed = RED_LED;          // Pin for the red LED
+
 
     QuickPID heaterPID;
     sTune tuner;
@@ -101,6 +156,48 @@ public:
     Blinker yellow;
     OneWire oneWire; // Create OneWire instance
     DallasTemperature dallas; // Create DallasTemperature instance
+    Preferences preferences;
+
+
+
+    enum VoltageState {
+        LAST_RESORT             =   0,
+        LOW_VOLTAGE_WARNING     =   1,  
+        PROTECTED               =   2,
+        ECONOMY                 =   3,
+        BOOST                   =   4,  
+        VBOOST_RESET            =   5   
+    };
+    enum TempState {
+        SUBZERO                 =  0,
+        ECO_TEMP                =  1,
+        BOOST_TEMP              =  2,
+        OVER_TEMP               =  3,
+        TEMP_WARNING            =  4,
+        TBOOST_RESET            =  5,
+        DEFAULT_TEMP            =  6
+    };
+
+    /// void controlCharger(bool state);
+    VoltageState getVoltageState(   int voltagePrecent, 
+                                    int ecoPrecentVoltage, 
+                                    int boostPrecentVoltage);
+
+    // getTempState
+    TempState getTempState(         float temperature, 
+                                    int ecoTemp, 
+                                    int boostTemp);
+
+
+public:
+
+    static batterys batry;
+
+
+    Battery(int tempSensor, int voltagePin, int heaterPin, int chargerPin, int greenLed, 
+            int yellowLed, int redLed);
+    // ~Battery();
+
             
         // Global variables
     u_int32_t MOVAreadings[MOVING_AVG_SIZE] = {0};
@@ -143,7 +240,6 @@ public:
     float outputStep = 200;
     float tempLimit = 40;
     
-    void begin();
     void loop();
     void setup();
  
@@ -212,44 +308,6 @@ public:
     void controlHeaterPWM(uint8_t dutycycle);
 
 
-private: 
-
-    // static Battery* instance; 
-    const int tempSensor = TEMP_SENSOR;   // Pin for voltage reading
-    const int voltagePin = VOLTAGE_PIN;   // Pin for voltage reading
-    const int heaterPin = HEATER_PIN;    // Pin for controlling the heater
-    const int chargerPin = CHARGER_PIN;   // Pin for controlling the charger
-    const int greenLed = GREEN_LED;      // Pin for the green LED
-    const int yellowLed = YELLOW_LED;    // Pin for the yellow LED
-    const int redLed = RED_LED;          // Pin for the red LED
-
-    enum VoltageState {
-        LAST_RESORT             =   0,
-        LOW_VOLTAGE_WARNING     =   1,  
-        PROTECTED               =   2,
-        ECONOMY                 =   3,
-        BOOST                   =   4,  
-        VBOOST_RESET            =   5   
-    };
-    enum TempState {
-        SUBZERO                 =  0,
-        ECO_TEMP                =  1,
-        BOOST_TEMP              =  2,
-        OVER_TEMP               =  3,
-        TEMP_WARNING            =  4,
-        TBOOST_RESET            =  5,
-        DEFAULT_TEMP            =  6
-    };
-
-    /// void controlCharger(bool state);
-    VoltageState getVoltageState(   int voltagePrecent, 
-                                    int ecoPrecentVoltage, 
-                                    int boostPrecentVoltage);
-
-    // getTempState
-    TempState getTempState(         float temperature, 
-                                    int ecoTemp, 
-                                    int boostTemp);
 
 
 };

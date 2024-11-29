@@ -60,83 +60,56 @@ struct statesLog {
 
 statesLog batteryLog;
 
-Battery::Battery(   int tempSensor, 
-                    int voltagePin, 
-                    int heaterPin, 
-                    int chargerPin, 
-                    int greenLed, 
-                    int yellowLed, 
-                    int redLed) :
-        oneWire(tempSensor),
-        dallas(&oneWire),
-        voltagePin(voltagePin),
-        heaterPin(heaterPin),
-        chargerPin(chargerPin),
-        heaterPID(&pidInput, &pidOutput, &pidSetpoint, kp, ki, kd, QuickPID::Action::direct),
-        red(redLed),
-        yellow(yellowLed),
-        green(greenLed),
-        tuner(&pidInput, &pidOutput, sTune::TuningMethod::ZN_PID, sTune::Action::directIP, sTune::SerialMode::printOFF)
-                {
-                    heaterPID = QuickPID(&pidInput, &pidOutput, &pidSetpoint, kp, ki, kd, QuickPID::Action::direct);
-                    heaterPID.SetTunings(kp, ki, kd); //apply PID gains
-                    heaterPID.SetOutputLimits(0, 255);
-                    heaterPID.SetSampleTimeUs(1000 * 1000); // 1 second.
-                    heaterPID.SetMode(QuickPID::Control::manual);   
+Battery::Battery(   int tempSensor, int voltagePin, int heaterPin, int chargerPin, int greenLed, 
+                    int yellowLed, int redLed) 
+        :   oneWire(tempSensor)
+        ,   dallas(&oneWire)
+        ,   voltagePin(voltagePin)
+        ,   heaterPin(heaterPin)
+        ,   chargerPin(chargerPin)
+        ,   heaterPID(&pidInput, &pidOutput, &pidSetpoint, kp, ki, kd, QuickPID::Action::direct)
+        ,   red(redLed)
+        ,   yellow(yellowLed)
+        ,   green(greenLed)
+        ,   tuner(&pidInput, &pidOutput, sTune::TuningMethod::ZN_PID, sTune::Action::directIP, sTune::SerialMode::printOFF)
+    {
 
-                    pinMode(CHARGER_PIN, OUTPUT);
-                    digitalWrite(CHARGER_PIN, LOW);
-                    dallas.begin();
+        pinMode(CHARGER_PIN, OUTPUT);
+        digitalWrite(CHARGER_PIN, LOW);
+        dallas.begin();
 
-                    adc1_config_width(ADC_WIDTH_12Bit);
-                    adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
-                    esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH_BIT_12, V_REF, &characteristics);
+        adc1_config_width(ADC_WIDTH_12Bit);
+        adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
+        esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH_BIT_12, V_REF, &characteristics);
 
-                    ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
-                    ledcAttachPin(heaterPin, PWM_CHANNEL);
+        heaterPID = QuickPID(&pidInput, &pidOutput, &pidSetpoint, kp, ki, kd, QuickPID::Action::direct);
+        heaterPID.SetTunings(kp, ki, kd); //apply PID gains
+        heaterPID.SetOutputLimits(0, 255);
+        heaterPID.SetSampleTimeUs(1000 * 1000); // 1 second.
+        heaterPID.SetMode(QuickPID::Control::manual);   
 
-                    loadSettings();
-                    controlHeaterPWM(0);
+        ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
+        ledcAttachPin(heaterPin, PWM_CHANNEL);
 
-                }
+        pinMode(heaterPin, OUTPUT);
+        tuner.Configure(inputSpan, outputSpan, outputStart, outputStep, testTimeSec, settleTimeSec, samples);
+        tuner.SetEmergencyStop(tempLimit);
 
-void Battery::begin()
-{
-    pinMode(CHARGER_PIN, OUTPUT);
-    digitalWrite(CHARGER_PIN, LOW);
-    dallas.begin();
+        green.start();
+        green.setDelay(1000);
 
-    adc1_config_width(ADC_WIDTH_12Bit);
-    adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
-    esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH_BIT_12, V_REF, &characteristics);
+        yellow.start();
+        yellow.setDelay(1000);
 
-    ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
-    ledcAttachPin(heaterPin, PWM_CHANNEL);
-    controlHeaterPWM(0);
+        red.start();
+        red.setDelay(1000, 2000);
 
-}
+    }
+
 
 void Battery::setup() {
 
-    pinMode(heaterPin, OUTPUT);
-    tuner.Configure(inputSpan, outputSpan, outputStart, outputStep, testTimeSec, settleTimeSec, samples);
-    tuner.SetEmergencyStop(tempLimit);
-
     loadSettings();
-
-    green.start();
-    green.setDelay(1000);
-
-    yellow.start();
-    yellow.setDelay(1000);
-
-    red.start();
-    red.setDelay(1000, 2000);
-
-
-
-
-
 }
 
 void Battery::loop() {
@@ -267,10 +240,12 @@ bool Battery::readTemperature() {
         if (temperature == DEVICE_DISCONNECTED_C) {
             Serial.println(" Error: Could not read temperature data ");
             batry.temperature = 127;
+            state.temperature = 127;
             return false;
         } 
         else {
             batry.temperature = temperature;
+            state.temperature = temperature;
             return true;
         }
     return false;
@@ -278,11 +253,7 @@ bool Battery::readTemperature() {
 return false;
 
 }
-/*
 
-
-        Logging function for the battery control & quickpanel.
-*/
 
 void Battery::handleBatteryControl() {
     uint32_t currentMillis = millis(); 

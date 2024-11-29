@@ -49,7 +49,8 @@
 #define FORCE_USE_HOTSPOT 0
 #define LOG_BUFFER 50
 
-Battery batt;
+Battery batt(TEMP_SENSOR, VOLTAGE_PIN, HEATER_PIN, CHARGER_PIN, GREEN_LED, YELLOW_LED, RED_LED);
+
 int tempest;
 int batteryInSeries;
 unsigned int mittausmillit = 0;  // battery voltage and heat reading millis()
