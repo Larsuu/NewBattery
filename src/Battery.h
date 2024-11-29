@@ -12,6 +12,30 @@
 #include <ArduinoJson.h>
 #include <sTune.h>
 
+#define VERSION_1
+
+
+
+#ifdef VERSION_1
+#define TEMP_SENSOR 21
+#define VOLTAGE_PIN 39
+#define HEATER_PIN 25
+#define CHARGER_PIN 32
+#define GREEN_LED 4
+#define YELLOW_LED 18
+#define RED_LED 17
+#else
+#define TEMP_SENSOR 33
+#define VOLTAGE_PIN 39
+#define HEATER_PIN 32
+#define CHARGER_PIN 25
+#define GREEN_LED 4
+#define YELLOW_LED 18
+#define RED_LED 17
+#endif
+
+
+
 #define V_REF 1121
 #define MOVING_AVG_SIZE 5
 #define EEPROM_OFFSET 100
@@ -55,35 +79,43 @@ struct batterys {
 
 class Battery {
 public:
+
     static batterys batry;
     Preferences preferences;
 
-    Battery(int tempSensor = 33, 
-            int voltagePin = 39, 
-            int heaterPin = 32, 
-            int chargerPin = 26,    
-            int greenLed = 4, 
-            int yellowLed = 18, 
-            int redLed = 17);
+    Battery(const int tempSensor = TEMP_SENSOR, 
+            const int voltagePin = VOLTAGE_PIN, 
+            const int heaterPin = HEATER_PIN,       // heater and chareger swapped in the p
+            const int chargerPin = CHARGER_PIN,     // heater and chareger swapped in the p
+            const int greenLed = GREEN_LED, 
+            const int yellowLed = YELLOW_LED, 
+            const int redLed = RED_LED);
 
-    void begin();
-    void loop();
-    void setup();
-
-    
-    bool readTemperature();
-    void handleBatteryControl();    // Main control logic for battery
-    void saveSettings();
-    void loadSettings();
-
+    QuickPID heaterPID;
+    sTune tuner;
     esp_adc_cal_characteristics_t characteristics;
 
-    float getTemperature();         // Returns the current battery temperature
-    int getBatteryDODprecent();
+        // LED blinkers
+    Blinker red;
+    Blinker green;
+    Blinker yellow;
+    OneWire oneWire; // Create OneWire instance
+    DallasTemperature dallas; // Create DallasTemperature instance
+            
+        // Global variables
+    u_int32_t MOVAreadings[MOVING_AVG_SIZE] = {0};
+    u_int32_t varianceReadings[MOVING_AVG_SIZE] = {0};
+    int MOVAIndex = 0;
+    u_int32_t MOVASum = 0;
+    bool firstRun = true;
+    unsigned long voltageMillis = 0;
+    unsigned long heaterTimer = 0;
+    char logBuffer[50] = {0};
+    int logIndex = 0;
+    uint32_t lastLogTime = 0;
+    int lastVoltageState = -1;
+    int lastTempState = -1;
 
-    int getVoltageInPercentage(uint32_t milliVoltage);
-    float btryToVoltage(int precent); 
-    
     unsigned long currentMillis = 0;
     unsigned long lastTempStateTime = 0;
     unsigned long lastVoltageStateTime = 0;
@@ -91,6 +123,41 @@ public:
     bool setup_done = false;
     unsigned long dallasTime = 0;
 
+            // PID variables
+    float pidInput, pidOutput, pidSetpoint; 
+    float kp = 0;
+    float ki = 0;
+    float kd = 0;
+
+    float ap = 100;
+    float ai = 75;
+    float ad = 0;
+
+    // sTune user settings
+    uint32_t settleTimeSec = 10;
+    uint32_t testTimeSec = 200;
+    const uint16_t samples = 600;
+    const float inputSpan = 40;
+    const float outputSpan = 255;
+    float outputStart = 0;
+    float outputStep = 200;
+    float tempLimit = 40;
+    
+    void begin();
+    void loop();
+    void setup();
+ 
+    bool readTemperature();
+    void handleBatteryControl();    // Main control logic for battery
+    void saveSettings();
+    void loadSettings();
+
+    float getTemperature();         // Returns the current battery temperature
+    int getBatteryDODprecent();
+
+    int getVoltageInPercentage(uint32_t milliVoltage);
+    float btryToVoltage(int precent); 
+    
     bool setPidP(int pidP);
     int getPidP();
 
@@ -136,45 +203,26 @@ public:
     float getCurrentVoltage();
     int getBatteryApprxSize();
 
-        // Global variables
-    u_int32_t MOVAreadings[MOVING_AVG_SIZE] = {0};
-    u_int32_t varianceReadings[MOVING_AVG_SIZE] = {0};
-    int MOVAIndex = 0;
-    u_int32_t MOVASum = 0;
-    bool firstRun = true;
-    unsigned long voltageMillis = 0;
-    unsigned long heaterTimer = 0;
-
-    char logBuffer[50] = {0};
-    int logIndex = 0;
-    uint32_t lastLogTime = 0;
-    int lastVoltageState = -1;
-    int lastTempState = -1;
-
     void addLogEntry(int voltState, int tempState);
-
     bool isValidHostname(const char* hostname);
-
     bool saveHostname(String hostname);
     bool loadHostname();
 
-        // PID variables
-    float pidInput, pidOutput, pidSetpoint; 
-    float kp = 0;
-    float ki = 0;
-    float kd = 0;
-
-    float ap = 100;
-    float ai = 75;
-    float ad = 0;
+    void updateHeaterPID();
+    void controlHeaterPWM(uint8_t dutycycle);
 
 
-/*
- *  Private methods
- *
- * These are the private methods that are used in the battery.cpp file
- */ 
 private: 
+
+    // static Battery* instance; 
+    const int tempSensor = TEMP_SENSOR;   // Pin for voltage reading
+    const int voltagePin = VOLTAGE_PIN;   // Pin for voltage reading
+    const int heaterPin = HEATER_PIN;    // Pin for controlling the heater
+    const int chargerPin = CHARGER_PIN;   // Pin for controlling the charger
+    const int greenLed = GREEN_LED;      // Pin for the green LED
+    const int yellowLed = YELLOW_LED;    // Pin for the yellow LED
+    const int redLed = RED_LED;          // Pin for the red LED
+
     enum VoltageState {
         LAST_RESORT             =   0,
         LOW_VOLTAGE_WARNING     =   1,  
@@ -192,57 +240,8 @@ private:
         TBOOST_RESET            =  5,
         DEFAULT_TEMP            =  6
     };
-    
-    /**/
-    // static Battery* instance; 
-    // int tempSensor;   // Pin for voltage reading
-    int voltagePin  = 39;   // Pin for voltage reading
-    int heaterPin   = 32;    // Pin for controlling the heater
-    int chargerPin  = 25;   // Pin for controlling the charger
-    // int greenLed;     // Pin for green LED
-    // int yellowLed;    // Pin for yellow LED
-    // int redLed;       // Pin for red LED
-    // float currentTemperature;  // ??
-    // bool temperatureFailsafe;   // ??
 
-    // LED blinkers
-    Blinker red;
-    Blinker green;
-    Blinker yellow;
-    OneWire oneWire; // Create OneWire instance
-    DallasTemperature dallas; // Create DallasTemperature instance
-
-/*
-    // PID variables
-    float pidInput, pidOutput, pidSetpoint; 
-    float kp = 50;
-    float ki = 50;
-    float kd = 0;
-
-    float ap = 100;
-    float ai = 75;
-    float ad = 0;
-*/
-
-    // user settings
-    
-    uint32_t settleTimeSec = 20;
-    uint32_t testTimeSec = 360;
-    const uint16_t samples = 500;
-    const float inputSpan = 40;
-    const float outputSpan = 255;
-    float outputStart = 0;
-    float outputStep = 50;
-    float tempLimit = 40;
-        
-    QuickPID heaterPID;
-    sTune tuner;
-
-    void updateHeaterPID();
-
-    void controlHeaterPWM(uint8_t dutycycle);
     /// void controlCharger(bool state);
-
     VoltageState getVoltageState(   int voltagePrecent, 
                                     int ecoPrecentVoltage, 
                                     int boostPrecentVoltage);
@@ -252,10 +251,6 @@ private:
                                     int ecoTemp, 
                                     int boostTemp);
 
-    // these are the final countdown voltage!! 
-    uint32_t currentMilliVoltage;
-
-    // these are the final countdown temperature!!
 
 };
 

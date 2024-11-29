@@ -5,6 +5,8 @@
 #include <ESPUI.h>
 #include <sTune.h>
 #include <PubSubClient.h>
+#define VERSION_1
+
 
 
 /*
@@ -64,31 +66,44 @@ Battery::Battery(   int tempSensor,
                     int chargerPin, 
                     int greenLed, 
                     int yellowLed, 
-                    int redLed) 
-                :   oneWire(tempSensor),
-                    dallas(&oneWire),
-                    voltagePin(voltagePin),
-                    heaterPin(heaterPin),
-                    chargerPin(chargerPin),
-                    heaterPID(&pidInput, &pidOutput, &pidSetpoint, kp, ki, kd, QuickPID::Action::direct),
-                    red(redLed),
-                    yellow(yellowLed),
-                    green(greenLed),
-                    tuner(&pidInput, &pidOutput, sTune::TuningMethod::ZN_PID, sTune::Action::directIP, sTune::SerialMode::printOFF)
+                    int redLed) :
+        oneWire(tempSensor),
+        dallas(&oneWire),
+        voltagePin(voltagePin),
+        heaterPin(heaterPin),
+        chargerPin(chargerPin),
+        heaterPID(&pidInput, &pidOutput, &pidSetpoint, kp, ki, kd, QuickPID::Action::direct),
+        red(redLed),
+        yellow(yellowLed),
+        green(greenLed),
+        tuner(&pidInput, &pidOutput, sTune::TuningMethod::ZN_PID, sTune::Action::directIP, sTune::SerialMode::printOFF)
                 {
-
+                    heaterPID = QuickPID(&pidInput, &pidOutput, &pidSetpoint, kp, ki, kd, QuickPID::Action::direct);
                     heaterPID.SetTunings(kp, ki, kd); //apply PID gains
                     heaterPID.SetOutputLimits(0, 255);
                     heaterPID.SetSampleTimeUs(1000 * 1000); // 1 second.
                     heaterPID.SetMode(QuickPID::Control::manual);   
-                
-                    begin();
+
+                    pinMode(CHARGER_PIN, OUTPUT);
+                    digitalWrite(CHARGER_PIN, LOW);
+                    dallas.begin();
+
+                    adc1_config_width(ADC_WIDTH_12Bit);
+                    adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
+                    esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH_BIT_12, V_REF, &characteristics);
+
+                    ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
+                    ledcAttachPin(heaterPin, PWM_CHANNEL);
+
+                    loadSettings();
+                    controlHeaterPWM(0);
+
                 }
 
 void Battery::begin()
 {
-    pinMode(25, OUTPUT);
-    digitalWrite(25, LOW);
+    pinMode(CHARGER_PIN, OUTPUT);
+    digitalWrite(CHARGER_PIN, LOW);
     dallas.begin();
 
     adc1_config_width(ADC_WIDTH_12Bit);
@@ -158,11 +173,11 @@ void Battery::updateHeaterPID() {
 
     if(firstRun) {
 
-        pidSetpoint = 30;
+        pidSetpoint = pidSetpoint;
         pidInput = batry.temperature;
     
         // float optimusPrime = 
-        tuner.softPwm(heaterPin, pidInput, pidOutput, pidSetpoint, outputSpan, 0);
+        tuner.softPwm(heaterPin, pidInput, pidOutput, pidSetpoint, outputSpan, 1);
         // Serial.print("Optimus Prime: ");
         // Serial.println(optimusPrime);
 
@@ -175,7 +190,7 @@ void Battery::updateHeaterPID() {
                 case tuner.tunings: // active just once when sTune is done
                   tuner.GetAutoTunings(&kp, &ki, &kd); // sketch variables updated by sTune
                   heaterPID.SetOutputLimits(0, outputSpan);
-                  heaterPID.SetSampleTimeUs((outputSpan -1 ) * 1000);
+                  heaterPID.SetSampleTimeUs((outputSpan - 1 ) * 1000);
                   heaterPID.SetMode(QuickPID::Control::automatic); // the PID is turned on
                   heaterPID.SetProportionalMode(QuickPID::pMode::pOnMeas);
                   heaterPID.SetAntiWindupMode(QuickPID::iAwMode::iAwClamp);
@@ -201,6 +216,7 @@ void Battery::updateHeaterPID() {
         heaterTimer = millis();
 
         Battery::adjustHeaterSettings();
+
         this->pidInput = batry.temperature; // Update the input with the current temperature
         this->pidSetpoint = batry.wantedTemp; // Update the setpoint with the wanted temperature
 
@@ -638,24 +654,32 @@ void Battery::readVoltage(unsigned long intervalSeconds) {
     if (currentMillis - voltageMillis >= intervalMillis) {
         voltageMillis = currentMillis;
 
+        #ifndef VERSION_1  // different hardware setup
         if(!batry.chargerState) {
         gpio_set_direction(GPIO_NUM_25, GPIO_MODE_OUTPUT);
         gpio_set_level(GPIO_NUM_25, HIGH); 
         delay(5); }
+        #else
+        digitalWrite(CHARGER_PIN, HIGH);
+        delay(5);
+        #endif
         
         u_int32_t voltVal = adc1_get_raw(ADC_CHANNEL);
         u_int32_t calibratedVoltage = esp_adc_cal_raw_to_voltage(voltVal, &characteristics) * 30.81;
 
+        #ifndef VERSION_1
         if(!batry.chargerState) {
         gpio_set_direction(GPIO_NUM_25, GPIO_MODE_OUTPUT);
         gpio_set_level(GPIO_NUM_25, LOW);   }
+        #else
+        digitalWrite(CHARGER_PIN, LOW);
+        #endif
     
         if (firstRun) {
-            // Initialize all readings to the first calibrated voltage for a smooth start
+            // Initialize the moving average array -> otherwise slow voltage increase takes time.
             for (int i = 0; i < MOVING_AVG_SIZE; i++) {
                 MOVAreadings[i] = calibratedVoltage;
             }
-            // firstRun = false;
         }
 
         // Update the moving average array
@@ -682,11 +706,6 @@ void Battery::readVoltage(unsigned long intervalSeconds) {
         // Store variance in the secondary array
         varianceReadings[MOVAIndex] = variance;
 
-        // Print debug information
-        // Serial.print("MOVASum: ");
-        // Serial.println(MOVASum);
-        // Serial.print("Variance: ");
-        // Serial.println(variance);
 
         // Check if the moving average is within the valid range
         if (movingAverage > 5000 && movingAverage < 100000) {
