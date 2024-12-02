@@ -126,28 +126,12 @@ bool checkAndLogState();
 bool checkAndLogBoostState();
 
 
-
-const char* mqtt_server = "192.168.1.150";
-const int mqtt_port = 1883;
-const char* mqtt_user = "mosku";
-const char* mqtt_password = "kakkapylly123";
-const char* ssid = "Olohuone";
-const char* password = "10209997";
-char hostname[15];
-
-WiFiClient espClient;
-PubSubClient client(espClient);
-
-
 void setup() {
-  
 	  Serial.begin(115200);
-    // batt.setup();
+    batt.setup();
 
 #if defined(ESP32)
-        batt.loadHostname();  // needs to be before setUpUI!!   
-        strncpy(hostname, Battery::batry.myname.c_str(), sizeof(hostname) - 1);
-        hostname[sizeof(hostname) - 1] = '\0';
+        // batt.loadHostname();  // needs to be before setUpUI!!   
 #else
     WiFi.hostname(hostname);
 #endif
@@ -159,7 +143,6 @@ void setup() {
 	#endif
     batt.setup();
 	  setUpUI();
-    client.setServer(mqtt_server, mqtt_port);
 }   
 
 
@@ -512,7 +495,7 @@ ESPUI.setElementStyle(saveButton, "background-color: #d3d3d3; width: 20%; text-a
     ESPUI.updateControlValue(chargerTimespan, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
     ESPUI.updateControlValue(heaterNum, String(batt.getResistance()));
     ESPUI.updateControlValue(pidPNum, String(batt.getPidP()));
-    ESPUI.updateControlValue(nameLabel, String(hostname));
+    // ESPUI.updateControlValue(nameLabel, String(hostname));
 
 
   //Add a callback to the main selector to print the selected value
@@ -524,7 +507,7 @@ ESPUI.setElementStyle(saveButton, "background-color: #d3d3d3; width: 20%; text-a
 
   //Finally, start up the UI.
   //This should only be called once we are connected to WiFi.
-  ESPUI.begin(hostname);
+  ESPUI.begin(HOSTNAME);
 }
 
 //Most elements in this test UI are assigned this generic callback which prints some
@@ -540,9 +523,6 @@ void generalCallback(Control *sender, int type) {
   Serial.println(sender->value);
 }
 /*
-
-
-
 
 
     EcoVoltage Iumber Field - update to Voltage
@@ -580,8 +560,10 @@ void ecoVoltCallback(Control* sender, int type) {
   // ESPUI.updateLabel(boostVoltLabel, String(batt.btryToVoltage(sender->value.toInt()), 2));
   // ESPUI.updateLabel(ecoVoltLabel, String(batt.btryToVoltage(sender->value.toInt()), 2));
 }
+/*
 
-
+    not used anymore? Scrap select battery?
+*/
 void selectBattery(Control* sender, int type) {
 	int current = batt.getNominalString();
 
@@ -637,13 +619,7 @@ void selectBattery(Control* sender, int type) {
   Serial.println(sender->value);
 
 }
-
-
 /*
-
-
-
-
 
 
 
@@ -689,8 +665,6 @@ void boostVoltCallback(Control* sender, int type) {
 
 
 
-
-
 */
 void ecoTempCallback(Control *sender, int type) {
   switch (type) {
@@ -719,10 +693,6 @@ void ecoTempCallback(Control *sender, int type) {
   }
 }
 /*
-
-
-
-
 
 
 
@@ -758,11 +728,6 @@ void boostTempCallback(Control *sender, int type) {
 
 
 
-
-
-
-
-
 */
 void boostVoltageSwitcherCallback(Control *sender, int type) {
     switch (type)  {
@@ -778,10 +743,6 @@ void boostVoltageSwitcherCallback(Control *sender, int type) {
     }
 }
 /*
-
-
-
-
 
 
 
@@ -822,11 +783,13 @@ void paramCallback(Control* sender, int type, int param)
 }
 
 
+
+
 unsigned long lastMsg = 0;
 const long interval = 15000; // 1 minute
 unsigned long mqttmillis = 0;
 
-
+/*
 void reconnect() {
         // Serial.print("Attempting MQTT connection...");
         if (client.connect("ESP32Client", mqtt_user, mqtt_password)) {
@@ -955,6 +918,8 @@ void publishMessage() {
     client.disconnect();
     // Serial.println("MQTT disconnected"); 
   }
+  
+  */
 
 void loop() {
 
@@ -980,11 +945,11 @@ void loop() {
 
 
       if (checkAndLogBoostState()) {
-        logEntries += String((millis() / 60000)) + "  " + String("Voltage boost: ") + String(Battery::batry.voltBoostActive) + "     " + String("Temp boost: ") + String(Battery::batry.tempBoostActive) + "\n";
+        logEntries += String((millis() / 60000)) + "  " + String("Voltage boost: ") + String(batt.battery.voltBoost) + "     " + String("Temp boost: ") + String(batt.battery.tempBoost) + "\n";
       }
 
       if (checkAndLogState()) {
-        logEntries += String((millis() / 60000)) + "  " + String("Voltage state: ") + String(Battery::batry.vState) + "     " + String("Temp state: ")  + String(Battery::batry.tState) + "\n";
+        logEntries += String((millis() / 60000)) + "  " + String("Voltage state: ") + String(batt.battery.vState) + "     " + String("Temp state: ")  + String(batt.battery.tState) + "\n";
       }
 
       ESPUI.updateLabel(firstLogLabel, logEntries);
@@ -992,7 +957,7 @@ void loop() {
 
   if (millis() - lastMsg > interval) {
         lastMsg = millis();
-        publishMessage();
+        // publishMessage();
   }
 
 }
@@ -1007,7 +972,7 @@ void readStringFromEEPROM(String& buf, int baseaddress, int size) {
 }
 
 bool checkAndLogState() {
-    if (Battery::batry.vState != Battery::batry.previousVState || Battery::batry.tState != Battery::batry.previousTState) {
+    if ((batt.battery.vState != batt.battery.previousVState) || (batt.battery.tState != batt.battery.previousTState)) {
       
       /*
         String newState = "VState: " + String(Battery::batry.vState) + ", TState: " + String(Battery::batry.tState);
@@ -1026,9 +991,9 @@ bool checkAndLogState() {
 }
 
 bool checkAndLogBoostState() {
-    if (Battery::batry.voltBoostActive != previousVoltBoostActive || Battery::batry.tempBoostActive != previousTempBoostActive) {
-        previousTempBoostActive = Battery::batry.tempBoostActive;
-        previousVoltBoostActive = Battery::batry.voltBoostActive;
+    if ( batt.battery.voltBoost != previousVoltBoostActive || batt.battery.tempBoost != previousTempBoostActive) {
+        previousTempBoostActive = batt.battery.tempBoost;
+        previousVoltBoostActive = batt.battery.voltBoost;
         return true;
     }
     else return false;
@@ -1071,7 +1036,7 @@ void connectWifi() {
 		Serial.println(WiFi.localIP());
 		Serial.println("Wifi started");
 
-		if (!MDNS.begin(hostname)) {
+		if (!MDNS.begin(HOSTNAME)) {
 			Serial.println("Error setting up MDNS responder!");
 		}
 	} else {

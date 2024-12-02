@@ -11,11 +11,15 @@
 #include <esp_adc_cal.h>
 #include <ArduinoJson.h>
 #include <sTune.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <AsyncTelegram2.h>
+#include <WiFiClientSecure.h>
+#include <time.h>
 
 #define VERSION_1
 
-
-
+// old hardware version (just few old prototype boards  -- not in public use)
 #ifdef VERSION_1
 #define TEMP_SENSOR 21
 #define VOLTAGE_PIN 39
@@ -34,7 +38,7 @@
 #define RED_LED 17
 #endif
 
-
+#define USE_CLIENTSSL false  
 
 #define V_REF 1121
 #define MOVING_AVG_SIZE 5
@@ -48,95 +52,10 @@
 #define PWM_RESOLUTION 8
 
 
-
-// Old one get rid of! 
-struct batterys {
-    String      myname;
-    uint8_t     size;
-    uint8_t     sizeApprx;
-    uint8_t     wantedTemp;
-    uint32_t    mV_max;
-    uint32_t    mV_min;
-    float       temperature;
-    uint32_t    milliVoltage;
-    uint8_t     voltageInPrecent;
-    uint8_t     ecoVoltPrecent;
-    uint8_t     boostVoltPrecent;
-    uint8_t     ecoTemp;
-    uint8_t     boostTemp;
-    uint8_t     resistance;
-    uint8_t     capct;
-    uint8_t     chrgr;
-    uint8_t     vState;
-    uint8_t     tState;
-    uint8_t     previousVState;
-    uint8_t     previousTState;
-    uint8_t     maxPower;
-    uint8_t     pidP;
-    bool        chargerState;
-    bool        voltBoostActive;
-    bool        tempBoostActive;
-    };
-
-
-
 class Battery {
-
-
-
-
-
-
-
-
-
-
-
-
  private: 
-   struct batteryState {
-    // basic info
-    String      myname              = "Helmi";
-    float       temperature         = 0.0f;
-    uint32_t    milliVoltage        = 0;
-    uint8_t     size                = 7;
-    uint8_t     sizeApprx           = 7;                  //autodetect
 
-
-    // state related
-    uint8_t     previousVState      = 0;
-    uint8_t     previousTState      = 0;
-    uint8_t     vState              = 0;
-    uint8_t     tState              = 0;
-    uint8_t     ecoTemp             = 15;
-    uint8_t     boostTemp           = 25;
-
-    uint8_t     wantedTemp          = 15;
-    uint32_t    mV_max              = 100000;
-    uint32_t    mV_min              = 10000;
-
-    // lets get rid of these -- just too much of a hassel
-    uint8_t     voltageInPrecent;
-    uint8_t     ecoVoltPrecent;
-    uint8_t     boostVoltPrecent;
-
-    uint8_t     resistance          = 50;
-    uint8_t     capct               = 12;
-    uint8_t     chrgr               = 2;
-
-    uint8_t     maxPower;
-    float       pidP                = 1.00;
-    float       pidI                = 0.02;
-    float       pidD                = 0.02;
-
-    bool        chargerState        = false;
-    bool        voltBoost           = false;
-    bool        tempBoost           = false;
-};
-
-    static Battery* instance; 
-
-    batteryState state;
+    // hardware pins
     int tempSensor = TEMP_SENSOR;   // Pin for voltage reading
     int voltagePin = VOLTAGE_PIN;   // Pin for voltage reading
     int heaterPin = HEATER_PIN;    // Pin for controlling the heater
@@ -145,12 +64,11 @@ class Battery {
     int yellowLed = YELLOW_LED;    // Pin for the yellow LED
     int redLed = RED_LED;          // Pin for the red LED
 
-
     QuickPID heaterPID;
     sTune tuner;
     esp_adc_cal_characteristics_t characteristics;
 
-        // LED blinkers
+    // LED blinkers
     Blinker red;
     Blinker green;
     Blinker yellow;
@@ -158,9 +76,17 @@ class Battery {
     DallasTemperature dallas; // Create DallasTemperature instance
     Preferences preferences;
 
+    // LAN remote control and monitoring
+    WiFiClient espClient;
+    PubSubClient mqtt;
+    String mqttTopic;
+
+    // WAN remote control and monitoring
+    WiFiClientSecure client;  // Needed for secure connection
+    AsyncTelegram2 telegram;
 
 
-    enum VoltageState {
+    enum VoltageState { 
         LAST_RESORT             =   0,
         LOW_VOLTAGE_WARNING     =   1,  
         PROTECTED               =   2,
@@ -188,18 +114,92 @@ class Battery {
                                     int ecoTemp, 
                                     int boostTemp);
 
-
 public:
+   struct batteryState {
+    // basic info
+    String      myname              = "Helmi";
+    float       temperature         = 0.0f;
+    uint32_t    milliVoltage        = 0;
+    uint8_t     size                = 7;
+    uint8_t     sizeApprx           = 7;                //autodetect
 
-    static batterys batry;
+    // state related
+    uint8_t     previousVState      = 0;                // no need?
+    uint8_t     previousTState      = 0;                // no need?
+    uint8_t     vState              = 0;
+    uint8_t     tState              = 0;
+    uint8_t     ecoTemp             = 15;
+    uint8_t     boostTemp           = 25;
 
+    uint8_t     wantedTemp          = 15;
+    uint32_t    mV_max              = 100000;
+    uint32_t    mV_min              = 10000;
+
+    // lets get rid of these -- just too much of a hassel ??
+    uint8_t     voltageInPrecent;
+    uint8_t     ecoVoltPrecent;
+    uint8_t     boostVoltPrecent;
+    // too much conversion and calculation
+
+    uint8_t     resistance          = 50;
+    uint8_t     capct               = 12;
+    uint8_t     chrgr               = 2;
+
+    uint8_t     maxPower            = 30;
+    float       pidP                = 1.00;
+    float       pidI                = 0.02;
+    float       pidD                = 0.02;
+
+    bool        chargerState        = false;
+    bool        voltBoost           = false;
+    bool        tempBoost           = false;
+
+    struct {
+        char server[40] = "192.168.1.150";
+        int port = 1883;
+        char usernae[32] = "mosku";
+        char password[32] = "kakkapylly123";
+        int lastMessageTime = 0;
+        bool enabled = true;
+    } mqtt;
+
+    struct {
+            const char token[64] = "jaajuuu";
+            int64_t chatId = 12312355454;
+            bool enabled = false;
+            unsigned long lastMessageTime = 0;
+            bool alertsEnabled = true;
+    } telegram;
+    
+};
+    batteryState battery;
 
     Battery(int tempSensor, int voltagePin, int heaterPin, int chargerPin, int greenLed, 
-            int yellowLed, int redLed);
-    // ~Battery();
+            int yellowLed, int redLed)
+        :   oneWire(tempSensor)
+        ,   mqtt(espClient)
+        ,   telegram(client)
+        ,   dallas(&oneWire)
+        ,   voltagePin(voltagePin)
+        ,   heaterPin(heaterPin)
+        ,   chargerPin(chargerPin)
+        ,   red(redLed)
+        ,   yellow(yellowLed)
+        ,   green(greenLed)
+        ,   heaterPID(&pidInput, &pidOutput, &pidSetpoint, kp, ki, kd, QuickPID::Action::direct)
+        ,   tuner(&pidInput, &pidOutput, sTune::TuningMethod::ZN_PID, sTune::Action::directIP, sTune::SerialMode::printOFF)
+    {
+        mqttTopic = "battery/" + battery.myname + "/";
+        telegram.begin(); 
+        battery.telegram.enabled = true;
+    }
 
-            
-        // Global variables
+    ~Battery();
+
+    Battery(const Battery&) = delete;
+    Battery& operator=(const Battery&) = delete;
+ 
+    // Global variables
     u_int32_t MOVAreadings[MOVING_AVG_SIZE] = {0};
     u_int32_t varianceReadings[MOVING_AVG_SIZE] = {0};
     int MOVAIndex = 0;
@@ -220,7 +220,7 @@ public:
     bool setup_done = false;
     unsigned long dallasTime = 0;
 
-            // PID variables
+    // PID variables
     float pidInput, pidOutput, pidSetpoint; 
     float kp = 0;
     float ki = 0;
@@ -307,7 +307,17 @@ public:
     void updateHeaterPID();
     void controlHeaterPWM(uint8_t dutycycle);
 
-
+    void setupTelegram(const char* token, const char* chatId) {
+        // strncpy(battery.telegram.token, token, sizeof(battery.telegram.token)-1);
+        // strncpy(battery.telegram.chatId, chatId, sizeof(battery.telegram.chatId)-1);
+    
+        client.setInsecure();  // Skip certificate validation
+        telegram.setTelegramToken(token);
+        telegram.begin();
+    
+        battery.telegram.enabled = true;
+    
+    }
 
 
 };
