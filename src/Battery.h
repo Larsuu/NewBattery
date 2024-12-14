@@ -17,11 +17,16 @@
 #include <WiFiClientSecure.h>
 #include <time.h>
 
-#define VERSION_1
+
+#define STATUSCB  "statuscb"  // callback data sent when "LIGHT ON" button is pressed
+#define BOOSTCB "boostcb" // callback data sent when "LIGHT OFF" button is pressed
+
+
+#define VERSION_2
 
 // old hardware version (just few old prototype boards  -- not in public use)
 #ifdef VERSION_1
-#define TEMP_SENSOR 21
+#define TEMP_SENSOR 33
 #define VOLTAGE_PIN 39
 #define HEATER_PIN 25
 #define CHARGER_PIN 32
@@ -72,8 +77,8 @@ class Battery {
     Blinker red;
     Blinker green;
     Blinker yellow;
-    OneWire oneWire; // Create OneWire instance
-    DallasTemperature dallas; // Create DallasTemperature instance
+    OneWire oneWire;            // Create OneWire instance
+    DallasTemperature dallas;   // Create DallasTemperature instance
     Preferences preferences;
 
     // LAN remote control and monitoring
@@ -120,58 +125,83 @@ public:
     String      myname              = "Helmi";
     float       temperature         = 0.0f;
     uint32_t    milliVoltage        = 0;
+    uint8_t     voltageInPrecent    = 0;
     uint8_t     size                = 7;
     uint8_t     sizeApprx           = 7;                //autodetect
+
+    uint8_t     wantedTemp          = 15;
+
+    uint32_t    mV_max              = 100000;
+    uint32_t    mV_min              = 10000;
+
+    bool        voltBoost           = false;
+    bool        tempBoost           = false;
 
     // state related
     uint8_t     previousVState      = 0;                // no need?
     uint8_t     previousTState      = 0;                // no need?
     uint8_t     vState              = 0;
     uint8_t     tState              = 0;
-    uint8_t     ecoTemp             = 15;
-    uint8_t     boostTemp           = 25;
 
-    uint8_t     wantedTemp          = 15;
-    uint32_t    mV_max              = 100000;
-    uint32_t    mV_min              = 10000;
-
-    // lets get rid of these -- just too much of a hassel ??
-    uint8_t     voltageInPrecent;
-    uint8_t     ecoVoltPrecent;
-    uint8_t     boostVoltPrecent;
-    // too much conversion and calculation
-
-    uint8_t     resistance          = 50;
     uint8_t     capct               = 12;
-    uint8_t     chrgr               = 2;
-
-    uint8_t     maxPower            = 30;
-    float       pidP                = 1.00;
-    float       pidI                = 0.02;
-    float       pidD                = 0.02;
-
     bool        chargerState        = false;
-    bool        voltBoost           = false;
-    bool        tempBoost           = false;
+
+    uint8_t     ecoVoltPrecent      = 50;
+    uint8_t     boostVoltPrecent    = 80;
+
+    // Charger
+    struct {
+        bool        enable              = false;
+        uint8_t     current             = 0;
+    } charger;
+
+
+    // Heater element
+    struct {
+        bool        enable              = false;
+        uint8_t     maxPower            = 30;
+        uint8_t     resistance          = 50;
+        uint8_t     ecoTemp             = 15;
+        uint8_t     boostTemp           = 25;
+        float       pidP                = 1.00;
+        float       pidI                = 0.02;
+        float       pidD                = 0.02;
+    } heater;
+
+    // HTTP access
+    struct {
+        bool enable     = false;
+        String username = "batt";
+        String password = "ass";
+    } http;
 
     struct {
-        char server[40] = "192.168.1.150";
-        int port = 1883;
-        char usernae[32] = "mosku";
-        char password[32] = "kakkapylly123";
-        int lastMessageTime = 0;
-        bool enabled = true;
+        String ssid = "Olohuone";
+        String pass = "10209997";
+    } wlan;
+
+    // MQTT
+    struct {
+        String      server          = "192.168.1.150";
+        uint16_t    port            = 1883;
+        String      username        = "mosku";
+        String      password        = "kakkapylly123";
+        uint32_t    lastMessageTime = 0;
+        bool        enable          = true;
     } mqtt;
 
+    // Telegram
     struct {
-            const char token[64] = "jaajuuu";
-            int64_t chatId = 12312355454;
-            bool enabled = false;
+            String token = "7875426228:AAE5HQJSmiphhDAD-CynCpamfHmk65hkF1A";
+            int64_t chatId = 922951523;
+            bool enable = true;
             unsigned long lastMessageTime = 0;
             bool alertsEnabled = true;
+            uint32_t deltaVoltage = 0;
     } telegram;
-    
 };
+
+
     batteryState battery;
 
     Battery(int tempSensor, int voltagePin, int heaterPin, int chargerPin, int greenLed, 
@@ -190,22 +220,28 @@ public:
         ,   tuner(&pidInput, &pidOutput, sTune::TuningMethod::ZN_PID, sTune::Action::directIP, sTune::SerialMode::printOFF)
     {
         mqttTopic = "battery/" + battery.myname + "/";
-        telegram.begin(); 
-        battery.telegram.enabled = true;
+        battery.telegram.enable = true;
+        
     }
 
     ~Battery();
-
     Battery(const Battery&) = delete;
     Battery& operator=(const Battery&) = delete;
  
     // Global variables
+    const char* MYTZ = "EET-2EEST,M3.5.0/3,M10.5.0/4"; 
+
+
+    // Battery Voltage Reading variables.
     u_int32_t MOVAreadings[MOVING_AVG_SIZE] = {0};
     u_int32_t varianceReadings[MOVING_AVG_SIZE] = {0};
     int MOVAIndex = 0;
     u_int32_t MOVASum = 0;
-    bool firstRun = true;
+    unsigned long currentMillis = 0;
     unsigned long voltageMillis = 0;
+
+    bool firstRun = true;
+
     unsigned long heaterTimer = 0;
     char logBuffer[50] = {0};
     int logIndex = 0;
@@ -213,13 +249,32 @@ public:
     int lastVoltageState = -1;
     int lastTempState = -1;
 
-    unsigned long currentMillis = 0;
+    // unsigned long currentMillis = 0;
     unsigned long lastTempStateTime = 0;
     unsigned long lastVoltageStateTime = 0;
 
     bool setup_done = false;
     unsigned long dallasTime = 0;
 
+    // telegram
+    uint32_t tgLoop = 0;
+
+    ReplyKeyboard   myMainMenuKbd; // inline keyboard object helper
+    InlineKeyboard  StatusKbd;   // reply Voltage, Temp, Booststatus, Booststatus
+    ReplyKeyboard   BoostKbd;    // reply Boost, Boost, Boost 
+    ReplyKeyboard   ManualKbd;   // reply External URL -> github
+    ReplyKeyboard   SettingsKbd; // reply eco & boost limits
+    ReplyKeyboard   LogsKbd;     // reply log
+    ReplyKeyboard   EndKbd;      // reply end
+
+    bool isKeyboardActive;      // store if the reply keyboard is shown
+
+    const char* TEMP = "C";
+    const char* VOLT = "V";
+
+    const char* Status = "status";
+    const char* Boost = "boost";
+    
     // PID variables
     float pidInput, pidOutput, pidSetpoint; 
     float kp = 0;
@@ -243,7 +298,7 @@ public:
     void loop();
     void setup();
  
-    bool readTemperature();
+    void readTemperature();
     void handleBatteryControl();    // Main control logic for battery
     void saveSettings();
     void loadSettings();
@@ -254,7 +309,7 @@ public:
     int getVoltageInPercentage(uint32_t milliVoltage);
     float btryToVoltage(int precent); 
     
-    bool setPidP(int pidP);
+    bool setPidP(float pidP);
     int getPidP();
 
     bool getChargerStatus();
@@ -291,7 +346,7 @@ public:
     int getResistance();
 
     float calculateChargeTime(int initialPercentage, int targetPercentage);
-    void  readVoltage(unsigned long intervalSeconds);
+    void  readVoltage(uint8_t intervalSeconds);
 
     void adjustHeaterSettings();
 
@@ -307,18 +362,15 @@ public:
     void updateHeaterPID();
     void controlHeaterPWM(uint8_t dutycycle);
 
-    void setupTelegram(const char* token, const char* chatId) {
-        // strncpy(battery.telegram.token, token, sizeof(battery.telegram.token)-1);
-        // strncpy(battery.telegram.chatId, chatId, sizeof(battery.telegram.chatId)-1);
-    
-        client.setInsecure();  // Skip certificate validation
-        telegram.setTelegramToken(token);
-        telegram.begin();
-    
-        battery.telegram.enabled = true;
-    
-    }
+    void setupTelegram(const char* token, const char* chatId);
 
+    void publishBatteryData();
+
+
+
+    void mqttSetup();
+    void handleMqtt();
+    
 
 };
 

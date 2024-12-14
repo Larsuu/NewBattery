@@ -1,18 +1,17 @@
 #include "Battery.h"
 #include <Arduino.h>
-#include <ESPUI.h>
 #include <EEPROM.h>
 #include <OneWire.h>
 #include <string>
 #include <functional>
-#include <PubSubClient.h>
-#include <ESPUI.h>
+#include <Preferences.h>
 
 #if defined(ESP32)
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #else
 
+#include <ESPUI.h>
 // esp8266
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
@@ -55,23 +54,20 @@ int tempest;
 int batteryInSeries;
 unsigned int mittausmillit = 0;  // battery voltage and heat reading millis()
 
+
 int previousVState = 0;
 int previousTState = 0;
 String logEntries;
 String logBuffet;
 
-const byte DNS_PORT = 53;
-// IPAddress apIP(192, 168, 1, 1);
-
 //UI handles
-uint16_t tab1, tab2, tab3;
+uint16_t tab1, tab2, tab3, tab4, tab5;
 String clearLabelStyle, switcherLabelStyle;
 uint16_t battInfo, permInfo;
-uint16_t labelId, APSwitcher, ipLabel, ipText;
+uint16_t labelId, APSwitcher, ipLabel, ipText, statsLabel, uptimeLabel, ipaddrLabel, mdnsLabel, mdnsaddrLabel;
 uint16_t httpUserAccess, httpUsername, httpPassword;
 uint16_t voltLabel, tempLabel;
 uint16_t tempBoostSwitcher, voltBoostSwitcher; 
-uint16_t wifitab;
 uint16_t oldEcoTempLabel, oldBoostTempLabel;  // removable
 uint16_t ecoTempLabel, boostTempLabel, ecoTempMemoryLabel, boostTempMemoryLabel;
 uint16_t tempsLabels, group1, text1, text2, text3, text4, text5, text6, text7, text8, text9, text10, text11, text12;
@@ -89,9 +85,20 @@ bool previousTempBoostActive = false;
 uint32_t now = 0;
 
 //UI handles
-uint16_t wifi_ssid_text, wifi_pass_text;
+const char* hostname = "helmi";
+
 uint16_t graph;
 volatile bool updates = false;
+
+uint16_t wifi_ssid_text, wifi_pass_text, wifiLabelSSID, wifiLabelPass, wifiButton;
+
+uint16_t httpPass, httpUser, httpEnable, httpButton;
+
+uint16_t mqttEnable, mqttUser, mqttPass, mqttIp, mqttUsername, mqttPassword, mqttIpaddr, mqttButton;
+
+uint16_t tgEnable, tgUser, tgToken, tgLabelUser, tgLabelToken, tgButton;
+
+uint16_t logTopic, logSeparator, localHosti, localAddr;
 
 //ESPUI Configs page integers:
 uint16_t mainSelector, permSwitcher;
@@ -101,6 +108,11 @@ uint16_t saveButton;
 uint16_t textSeriesConfig, seriesConfigNum, vertgroupswitcher, chargerTimeFeedback;
 
 uint16_t autoSeriesDet, autoSeriesNum;
+
+String stored_ssid;
+String stored_pass;
+
+Preferences preferences;
 
 //Function Prototypes for ESPUI
 void connectWifi();
@@ -125,13 +137,53 @@ void selectBattery(Control* sender, int type);
 bool checkAndLogState();
 bool checkAndLogBoostState();
 
+String httpUserAcc = "batt";
+String httpPassAcc = "ass";
+bool httpEn = false;
+bool mqttEn = false;
+bool telegEn = false;
+
+
 
 void setup() {
 	  Serial.begin(115200);
     batt.setup();
 
+  preferences.begin("btry", true);
+    String hosting = preferences.getString("myname", String("Helmi"));
+    httpEn = preferences.getBool("httpen", false);
+    httpUserAcc = preferences.getString("httpusr");
+    httpPassAcc = preferences.getString("httppwd");
+    hostname = hosting.c_str();
+  preferences.end();
+
+  Serial.println("Hostname" + hosting);
+
+  preferences.begin("wifi", true);
+    stored_ssid = preferences.getString("ssid", String("Olohuone"));
+    stored_pass = preferences.getString("pass", String("10209997"));
+  preferences.end();
+
+  Serial.println("Stored SSID:" + stored_ssid);
+  Serial.println("Stored Pass:" + stored_pass);
+
+  preferences.begin("http", true); // "wifi" is the namespace, false means read/write
+  httpUserAcc = preferences.getString("user", "batt");
+  httpPassAcc = preferences.getString("pass", "ass");
+  preferences.end(); // Close Preferences  
+
+
+/*
+                // Open Preferences with a namespace
+        preferences.begin("wifi", false); // "wifi" is the namespace, false means read/write
+        // Save SSID and Password
+        preferences.putString("ssid", ESPUI.getControl(wifi_ssid_text)->value);
+        preferences.putString("password", ESPUI.getControl(wifi_pass_text)->value);
+        preferences.end(); // Close Preferences  
+*/
+
 #if defined(ESP32)
-        // batt.loadHostname();  // needs to be before setUpUI!!   
+    batt.loadHostname();  // needs to be before setUpUI!!   
 #else
     WiFi.hostname(hostname);
 #endif
@@ -141,10 +193,8 @@ void setup() {
 	#if defined(ESP32)
 		WiFi.setSleep(true); //For the ESP32: turn off sleeping to increase UI responsivness (at the cost of power use)
 	#endif
-    batt.setup();
 	  setUpUI();
 }   
-
 
 void setUpUI() {
 
@@ -154,174 +204,199 @@ void setUpUI() {
   
     auto tab1 = ESPUI.addControl(Tab, "Info", "Info");
     auto tab2 = ESPUI.addControl(Tab, "Setup", "Setup");
-    auto tab3 = ESPUI.addControl(Tab, "Access", "Access");
-  /*
+    auto wifitab = ESPUI.addControl(Tab, "wifitab", "WiFi");
+    auto tgtab = ESPUI.addControl(Tab, "telegram", "Telegram");
+
+  /*-
    * Tab: Basic Controls
    * This tab contains all the basic ESPUI controls, and shows how to read and update them at runtime.
    *-----------------------------------------------------------------------------------------------------------*/
   
+  // Styles
   clearLabelStyle = "background-color: unset; width: 100%;";
   switcherLabelStyle = "width: 25%; background-color: unset;";
 
-  // ESPUI.addControl(Separator, "Quick controls", "", None);
+// ###########################################   QuickTAB  ########################################################
   auto vertgroupswitcher = ESPUI.addControl(Label, "QuickPanel", "", Peterriver);
   ESPUI.setVertical(vertgroupswitcher); 
-
   ESPUI.setElementStyle(vertgroupswitcher, "background-color: unset;");
 
   chargerTimeFeedback = ESPUI.addControl(Label, "Charger Time", "0.00", None, vertgroupswitcher);
                         ESPUI.setElementStyle(chargerTimeFeedback, switcherLabelStyle);
 
-  tempLabel =       ESPUI.addControl(Label, "TempLabel", "0", None, vertgroupswitcher);
-                    ESPUI.setElementStyle(tempLabel , switcherLabelStyle);
+  tempLabel           = ESPUI.addControl(Label, "TempLabel", "0", None, vertgroupswitcher);
+                        ESPUI.setElementStyle(tempLabel , switcherLabelStyle);
     
-  quickPanelVoltage = ESPUI.addControl(Label, "QuickbtrToVolts", "0", None, vertgroupswitcher);  // NewlineLabel
-                      ESPUI.setElementStyle(quickPanelVoltage, switcherLabelStyle);
+  quickPanelVoltage   = ESPUI.addControl(Label, "QuickbtrToVolts", "0", None, vertgroupswitcher);  // NewlineLabel
+                        ESPUI.setElementStyle(quickPanelVoltage, switcherLabelStyle);
 
-  voltLabel =       ESPUI.addControl(Label, "VoltLabel", "0", None, vertgroupswitcher);
-                    ESPUI.setElementStyle(voltLabel, switcherLabelStyle);
+  voltLabel           = ESPUI.addControl(Label, "VoltLabel", "0", None, vertgroupswitcher);
+                        ESPUI.setElementStyle(voltLabel, switcherLabelStyle);
 
-                      ESPUI.setElementStyle(ESPUI.addControl(Label, "emptyLine", "", None, vertgroupswitcher), clearLabelStyle);  // NewlineLabel
+                        ESPUI.setElementStyle(ESPUI.addControl(Label, "emptyLine", "", None, vertgroupswitcher), clearLabelStyle);  // NewlineLabel
   
+  extraLabel          = ESPUI.addControl(Label, "ExtraLabel", "Temp Boost", None, vertgroupswitcher); 
+                        ESPUI.setVertical(extraLabel);
+                        ESPUI.setElementStyle(extraLabel, switcherLabelStyle);
 
-  extraLabel =  ESPUI.addControl(Label, "ExtraLabel", "Temp Boost", None, vertgroupswitcher); 
-                ESPUI.setVertical(extraLabel);
-                ESPUI.setElementStyle(extraLabel, switcherLabelStyle);
+  tempSwitcher        = ESPUI.addControl(Switcher, "", "", None, vertgroupswitcher, boostTempSwitcherCallback);
+                        ESPUI.setVertical(tempSwitcher);
+                        // ESPUI.updateSwitcher(tempSwitcher, "1");
 
-  tempSwitcher  = ESPUI.addControl(Switcher, "", "0", None, vertgroupswitcher, boostTempSwitcherCallback);
-                  ESPUI.setVertical(tempSwitcher);
+  voltSwitcher        = ESPUI.addControl(Switcher, "", "", None, vertgroupswitcher, boostVoltageSwitcherCallback);
+                        ESPUI.setVertical(voltSwitcher);
+                        // ESPUI.updateSwitcher(voltSwitcher, "1");
+                        
 
-  voltSwitcher =  ESPUI.addControl(Switcher, "", "0", None, vertgroupswitcher, boostVoltageSwitcherCallback);
-                  ESPUI.setVertical(voltSwitcher);
+  ultraLabel          = ESPUI.addControl(Label, "", "Voltage Boost", None, vertgroupswitcher);  // NewlineLabel
+                        ESPUI.setVertical(ultraLabel);
+                        ESPUI.setElementStyle(ultraLabel, switcherLabelStyle);
 
-  ultraLabel = ESPUI.addControl(Label, "", "Voltage Boost", None, vertgroupswitcher);  // NewlineLabel
-              ESPUI.setVertical(ultraLabel);
-              ESPUI.setElementStyle(ultraLabel, switcherLabelStyle);
+                        ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, vertgroupswitcher), clearLabelStyle);  // NewlineLabel
 
-              ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, vertgroupswitcher), clearLabelStyle);  // NewlineLabel
+/*
+      STATS like IP and uptime
+*/
+  statsLabel         = ESPUI.addControl(Label, "Stats:", "", None, tab1);
+                        ESPUI.setElementStyle(statsLabel, "background-color: unset; width: 100%; color: white; font-size: small; ");
+
+  uptimeLabel =       ESPUI.addControl(Label, "Uptime:", "Uptime", None, statsLabel);
+                        ESPUI.setElementStyle(uptimeLabel, "background-color: unset; width: 25%; color: white; font-size: small; text-align: left;  ");
+
+  labelId           = ESPUI.addControl(Label, "Uptime:", "", None, statsLabel);
+                      ESPUI.setElementStyle(labelId, "background-color: unset; width: 75%; color: white; font-size: small;  ");
+
+  ipaddrLabel       = ESPUI.addControl(Label, "IP", "IP", None, statsLabel);
+                        ESPUI.setElementStyle(ipaddrLabel, "background-color: unset; width: 25%; color: white; font-size: small; text-align: left; ");
+
+  ipText            = ESPUI.addControl(Label, "IP", "ipAddress", None, statsLabel);
+                      ESPUI.setElementStyle(ipText, "background-color: unset; width: 75%; color: white; font-size: small;  ");
+ 
+  localHosti        =   ESPUI.addControl(Label, "Hostname", "Hostname", None, statsLabel);
+                        ESPUI.setElementStyle(localHosti, "background-color: unset; width: 25%; color: white; font-size: small; text-align: left; ");
+
+  localAddr         = ESPUI.addControl(Label, "IP", "http:\/\/helmi.local", None, statsLabel);
+                      ESPUI.setElementStyle(localAddr, "background-color: transparent; border: 1px solid white; text-align: center; font-size: small; -webkit-appearance: none; -moz-appearance: textfield; width: 75%;");
+                  
+                      ESPUI.setElementStyle(ESPUI.addControl(Label, "emptyLine", "", None, statsLabel), clearLabelStyle);  // NewlineLabel
 
 
-  logLabel =  ESPUI.addControl(Label, "Log", "", None, tab1);
-              ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, logLabel), clearLabelStyle);  // NewlineLabel
 
-  firstLogLabel = ESPUI.addControl(Label, "FirstLog", "", None, logLabel);
-                  ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, firstLogLabel), clearLabelStyle);  // NewlineLabel
+/*
+  pidPNum           = ESPUI.addControl(Number, "PID_Pnum", "", Emerald, group1, generalCallback);
+                      ESPUI.addControl(Min, "", "0", None, pidPNum);
+                      ESPUI.addControl(Max, "", "10", None, pidPNum);
+                      ESPUI.setElementStyle(pidPNum, "background-color: transparent; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield; width: 25%;");
+                      ESPUI.setElementStyle(ESPUI.addControl(Label, "Precent", " ", Emerald, group1), "font-size: medium; font-family: serif; width: 25%; text-align: left; background-color: unset; color: darkslategray;");
 
 
+*/
+
+
+
+/*
+
+  LOGGING OF STATES
+
+*/
+
+  // logTopic            = ESPUI.addControl(Label, "logging", "Logs", None, statsLabel);
+  //                        ESPUI.setElementStyle(logTopic, "background-color: unset; width: 100%; color: white; font-size: small; ");
+
+  logSeparator        = ESPUI.addControl(Label, "Histor", "Logs", Emerald, statsLabel);
+                        ESPUI.setElementStyle(logSeparator, "text-align: left; font-size: small; font-family: serif; width: 100%; background-color: unset; color: white; margin-top: 10px; border-bottom: 1px solid darkslategray; padding-bottom: 5px;");
+
+  logLabel            = ESPUI.addControl(Label, "Log", "", None, statsLabel);
+                        ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, logLabel), clearLabelStyle);  // NewlineLabel
+
+  firstLogLabel       = ESPUI.addControl(Label, "FirstLog", "", None, statsLabel);
+                        ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, firstLogLabel), clearLabelStyle);  // NewlineLabel
+                        ESPUI.setElementStyle(firstLogLabel, "background-color: unset; width: 100%; color: white; font-size: small; ");
+
+// #################################################################################################
  /*
   * First tab
   *_____________________________________________________________________________________________________________*/
+/*
 
-  /* auto configs = ESPUI.addControl(Tab, "", "Configuration"); */
 
-  infoLabel = ESPUI.addControl(Label, "How To Use", "Battery Assistant<br><br>How To:<br><br>For initial setup, the most important thing is to define your battery configuration. Is your battery a 7S or 16S defines how your charger is controlled.<ul><li>7S is 24V</li><li>10S is 36V</li><li>13S is 48V</li><li>16S is 60V</li><li>20S is 72V</li></ul><p>Get to know how to use this even more from the link below</p>", Peterriver, tab1, textCallback);
-  ESPUI.setElementStyle(infoLabel, "font-family: serif; background-color: unset; width: 100%; text-align: left;");
-  labelId = ESPUI.addControl(Label, "Uptime:", "", None, tab1);
-  // ESPUI.setElementStyle(labelId, "font-family: serif; background-color: unset; width: 100%; text-align: center  ;");
-  ipText = ESPUI.addControl(Label, "IP", "ipAddress", None, tab1);
- 
-
-  group1      = ESPUI.addControl(Label, "Battery Settings", "", Turquoise, tab2);
-                ESPUI.setElementStyle(group1, "background-color: unset; width: 100%; color: black; font-size: medium;");
-
+*/
+  infoLabel         = ESPUI.addControl(Label, "How To Use", "Battery Assistant<br><br>How To:<br><br>For initial setup, the most important thing is to define your battery configuration. Is your battery a 7S or 16S defines how your charger is controlled.<ul><li>7S is 24V</li><li>10S is 36V</li><li>13S is 48V</li><li>16S is 60V</li><li>20S is 72V</li></ul><p>Get to know how to use this even more from the link below</p>", Peterriver, tab1, textCallback);
+                      ESPUI.setElementStyle(infoLabel, "font-family: serif; background-color: unset; width: 100%; text-align: left;");
   
-  nameLabel =  ESPUI.addControl(Text, "Hostname ", "Helmi", Alizarin, group1, textCallback);
-                  ESPUI.setElementStyle(nameLabel, "background-color: unset; width: 50%; text-align: center; font-size: medium;");
-                  ESPUI.setElementStyle(nameLabel, "font-size: x-large; font-family: serif; width: 100%; text-align: center;");
+  group1            = ESPUI.addControl(Label, "Battery Settings", "", Turquoise, tab2);
+                      ESPUI.setElementStyle(group1, "background-color: unset; width: 100%; color: black; font-size: medium;         ");
 
-                /*
-                ESPUI.setElementStyle(ESPUI.addControl(Label, "veijo.local", "URL:  veijo.local ", Alizarin, nameLabel), "background-color: unset; width: 100%; text-align: left;");
-                ESPUI.setElementStyle(ESPUI.addControl(Label, "ip", "IP: ", Alizarin, nameLabel), "background-color: unset; width: 20%; text-align: left;");
-                ESPUI.setElementStyle( ipLabel = ESPUI.addControl(Label, "", "IP", None, nameLabel), "background-color: unset; width: 80%; text-align: left;");
-
-                */
-
-
+  nameLabel         = ESPUI.addControl(Text, "Hostname ", "Helmi", Alizarin, group1, textCallback);
+                      ESPUI.setElementStyle(nameLabel, "background-color: unset; width: 50%; text-align: center; font-size: medium;");
+                      ESPUI.setElementStyle(nameLabel, "font-size: x-large; font-family: serif; width: 50%; text-align: center;");
 //    Heater Resistance
-  heater            =   ESPUI.addControl(Label, "Chrgr", "Heater", Emerald, group1);
-                        ESPUI.setElementStyle(heater, "text-align: left; font-size: small; font-family: serif; width: 100%; background-color: unset; color: black; margin-top: 20px; border-bottom: 1px solid darkslategray; padding-bottom: 5px;");
+  heater            = ESPUI.addControl(Label, "Chrgr", "Heater", Emerald, group1);
+                      ESPUI.setElementStyle(heater, "text-align: left; font-size: small; font-family: serif; width: 100%; background-color: unset; color: black; margin-top: 20px; border-bottom: 1px solid darkslategray; padding-bottom: 5px;");
 
+  heaterRes         = ESPUI.addControl(Label, "Battery Charger", "Resistance", None, group1);    
+                      ESPUI.setElementStyle(heaterRes, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;");
 
-  heaterRes          =  ESPUI.addControl(Label, "Battery Charger", "Resistance", None, group1);    
-                       ESPUI.setElementStyle(heaterRes, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;");
-
-  heaterNum   =         ESPUI.addControl(Number, "Charger Settings ", "", Emerald, group1, generalCallback);
+  heaterNum         = ESPUI.addControl(Number, "Charger Settings ", "", Emerald, group1, generalCallback);
                       ESPUI.addControl(Min, "", "0", None, heaterNum);
                       ESPUI.addControl(Max, "", "300", None, heaterNum);
                       ESPUI.setElementStyle(heaterNum, "background-color: transparent; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield; width: 25%;");
-
                       ESPUI.setElementStyle(ESPUI.addControl(Label, "A", "Ohm", Emerald, group1), "font-size: medium; font-family: serif; width: 25%; text-align: left; background-color: unset; color: darkslategray;");
-
 //   PID P Term
-  pidPText =            ESPUI.addControl(Label, "PID_Ptext", "Proportional", None, group1);    
-                        ESPUI.setElementStyle(pidPText, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;");
+  pidPText          = ESPUI.addControl(Label, "PID_Ptext", "Proportional", None, group1);    
+                      ESPUI.setElementStyle(pidPText, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;");
 
-  pidPNum =             ESPUI.addControl(Number, "PID_Pnum", "", Emerald, group1, generalCallback);
-                        ESPUI.addControl(Min, "", "0", None, pidPNum);
-                        ESPUI.addControl(Max, "", "10", None, pidPNum);
-                        ESPUI.setElementStyle(pidPNum, "background-color: transparent; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield; width: 25%;");
-
-                        ESPUI.setElementStyle(ESPUI.addControl(Label, "Precent", " ", Emerald, group1), "font-size: medium; font-family: serif; width: 25%; text-align: left; background-color: unset; color: darkslategray;");
+  pidPNum           = ESPUI.addControl(Number, "PID_Pnum", "", Emerald, group1, generalCallback);
+                      ESPUI.addControl(Min, "", "0", None, pidPNum);
+                      ESPUI.addControl(Max, "", "10", None, pidPNum);
+                      ESPUI.setElementStyle(pidPNum, "background-color: transparent; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield; width: 25%;");
+                      ESPUI.setElementStyle(ESPUI.addControl(Label, "Precent", " ", Emerald, group1), "font-size: medium; font-family: serif; width: 25%; text-align: left; background-color: unset; color: darkslategray;");
 
 // ---------------------------
+  text8             = ESPUI.addControl(Label, "Chrgr", "Battery Charger Info", Emerald, group1);
+                      ESPUI.setElementStyle(text8, "text-align: left; font-size: small; font-family: serif; width: 100%; background-color: unset; color: black; margin-top: 20px; border-bottom: 1px solid darkslategray; padding-bottom: 5px;");
 
-  text8 =       ESPUI.addControl(Label, "Chrgr", "Battery Charger Info", Emerald, group1);
-                ESPUI.setElementStyle(text8, "text-align: left; font-size: small; font-family: serif; width: 100%; background-color: unset; color: black; margin-top: 20px; border-bottom: 1px solid darkslategray; padding-bottom: 5px;");
+  text9             = ESPUI.addControl(Label, "Battery Charger", "Charger", None, group1);    
+                      ESPUI.setElementStyle(text9, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;"); 
 
+  text10 =            ESPUI.addControl(Number, "Charger Settings ", "2", Emerald, group1, generalCallback); 
+                      ESPUI.addControl(Min, "", "1", None, text10); 
+                      ESPUI.addControl(Max, "", "5", None, text10); 
+                      ESPUI.setElementStyle(text10, "background-color: transparent; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield; width: 25%;");
 
-  text9 =       ESPUI.addControl(Label, "Battery Charger", "Charger", None, group1);    
-                ESPUI.setElementStyle(text9, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;"); 
+                      ESPUI.setElementStyle(ESPUI.addControl(Label, "A", "A", Emerald, group1), "font-size: medium; font-family: serif; width: 25%; text-align: left; background-color: unset; color: darkslategray;");
 
+text11              = ESPUI.addControl(Label, "Battery Capacity", "Capacity", None, group1);    
+                      ESPUI.setElementStyle(text11, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;");
 
-  text10 =      ESPUI.addControl(Number, "Charger Settings ", "2", Emerald, group1, generalCallback); 
-                ESPUI.addControl(Min, "", "1", None, text10); 
-                ESPUI.addControl(Max, "", "5", None, text10); 
-                ESPUI.setElementStyle(text10, "background-color: transparent; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield; width: 25%;");
+text12              = ESPUI.addControl(Number, "Capacity Settings ", "20", Emerald, group1, generalCallback);
+                      ESPUI.addControl(Min, "", "1", None, text12);
+                      ESPUI.addControl(Max, "", "20", None, text12);
+                      ESPUI.setElementStyle(text12, "background-color: transparent; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield; width: 25%;");
+                      ESPUI.setElementStyle(ESPUI.addControl(Label, "A", "Ah", Emerald, group1), "font-size: medium; font-family: serif; width: 25%; text-align: left; background-color: unset; color: darkslategray;");
 
-                ESPUI.setElementStyle(ESPUI.addControl(Label, "A", "A", Emerald, group1), "font-size: medium; font-family: serif; width: 25%; text-align: left; background-color: unset; color: darkslategray;");
+text7               = ESPUI.addControl(Label, "Tempsis", "Batterys Nominal Value", Emerald, group1);
+                      ESPUI.setElementStyle(text7, "text-align: left; font-size: small; font-family: serif; width: 100%; background-color: unset; color: black; margin-top: 20px; border-bottom: 1px solid darkslategray; padding-bottom: 5px;");
 
+autoSeriesDet       = ESPUI.addControl(Label, "Battery Series Configuration", "Autodetect", None, group1);
+                      ESPUI.setElementStyle(autoSeriesDet, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;");
 
-
-text11        = ESPUI.addControl(Label, "Battery Capacity", "Capacity", None, group1);    
-                ESPUI.setElementStyle(text11, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;");
-
-
-text12 =          ESPUI.addControl(Number, "Capacity Settings ", "2", Emerald, group1, generalCallback);
-                  ESPUI.addControl(Min, "", "1", None, text12);
-                  ESPUI.addControl(Max, "", "20", None, text12);
-                  ESPUI.setElementStyle(text12, "background-color: transparent; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield; width: 25%;");
-
-                  ESPUI.setElementStyle(ESPUI.addControl(Label, "A", "Ah", Emerald, group1), "font-size: medium; font-family: serif; width: 25%; text-align: left; background-color: unset; color: darkslategray;");
-
-
-
-text7 =           ESPUI.addControl(Label, "Tempsis", "Batterys Nominal Value", Emerald, group1);
-                  ESPUI.setElementStyle(text7, "text-align: left; font-size: small; font-family: serif; width: 100%; background-color: unset; color: black; margin-top: 20px; border-bottom: 1px solid darkslategray; padding-bottom: 5px;");
-
-autoSeriesDet =   ESPUI.addControl(Label, "Battery Series Configuration", "Autodetect", None, group1);
-                  ESPUI.setElementStyle(autoSeriesDet, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;");
-
-autoSeriesNum =   ESPUI.addControl(Number, "Series Configuration", "7", Emerald, group1, selectBattery);
-                  ESPUI.addControl(Min, "", "7", None, autoSeriesNum);
-                  ESPUI.addControl(Max, "", "21", None, autoSeriesNum);
-                  ESPUI.setElementStyle(autoSeriesNum, "background-color: transparent; width: 25%; border: none; text-align: center; ; -webkit-appearance: none; -moz-appearance: textfield;");
-
-                  ESPUI.setElementStyle(ESPUI.addControl(Label, "C", "Strings", Emerald, group1), "font-family: serif; width: 25%; text-align: center; background-color: unset;color: darkslategray;");
-
-
+autoSeriesNum       = ESPUI.addControl(Number, "Series Configuration", "7", Emerald, group1,  generalCallback);  // selectBattery);
+                      ESPUI.addControl(Min, "", "7", None, autoSeriesNum);
+                      ESPUI.addControl(Max, "", "21", None, autoSeriesNum);
+                      ESPUI.setElementStyle(autoSeriesNum, "background-color: transparent; width: 25%; border: none; text-align: center; ; -webkit-appearance: none; -moz-appearance: textfield;");
+                      ESPUI.setElementStyle(ESPUI.addControl(Label, "C", "Strings", Emerald, group1), "font-family: serif; width: 25%; text-align: center; background-color: unset;color: darkslategray;");
 
 // Add Battery Series Configuration
 textSeriesConfig = ESPUI.addControl(Label, "Battery Series Configuration", "Series Config", None, group1);
                   ESPUI.setElementStyle(textSeriesConfig, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;");
 
-seriesConfigNum = ESPUI.addControl(Number, "Series Configuration", "7", Emerald, group1, selectBattery);
+seriesConfigNum = ESPUI.addControl(Number, "Series Configuration", "13", Emerald, group1, generalCallback);           // selectBattery);
                   ESPUI.addControl(Min, "", "7", None, seriesConfigNum);
                   ESPUI.addControl(Max, "", "21", None, seriesConfigNum);
                   ESPUI.setElementStyle(seriesConfigNum, "background-color: transparent; width: 25%; border: none; text-align: center; ; -webkit-appearance: none; -moz-appearance: textfield;");
 
                   ESPUI.setElementStyle(ESPUI.addControl(Label, "C", "Strings", Emerald, group1), "font-family: serif; width: 25%; text-align: center; background-color: unset;color: darkslategray;");
-
-
 
 text6 =           ESPUI.addControl(Label, "Tempsis", "Temperature Settings", Emerald, group1);
                   ESPUI.setElementStyle(text6, "text-align: left; font-size: small; font-family: serif; width: 100%; background-color: unset; color: black; margin-top: 20px; border-bottom: 1px solid darkslategray; padding-bottom: 5px;");
@@ -331,7 +406,7 @@ text1          =  ESPUI.addControl(Label, "Economy Temperature", "Eco temp", Non
                   ESPUI.setElementStyle(text1, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;");
 
 
-ecoTempNum =  ESPUI.addControl(Number, "Temperature settings ", "0", Emerald, group1, ecoTempCallback);
+ecoTempNum =  ESPUI.addControl(Number, "Temperature settings ", "15", Emerald, group1, generalCallback);     // ecoTempCallback);
               ESPUI.addControl(Min, "", "1", None, ecoTempNum);
               ESPUI.addControl(Max, "", "35", None, ecoTempNum);
               ESPUI.setElementStyle(ecoTempNum, "background-color: transparent; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield; width: 25%;");
@@ -342,7 +417,7 @@ ecoTempNum =  ESPUI.addControl(Number, "Temperature settings ", "0", Emerald, gr
 text2       = ESPUI.addControl(Label, "Boost temp", "Boost temp", None, group1);
               ESPUI.setElementStyle(text2, "background-color: unset; width: 50%; text-align: left; color: darkslategray; font-size: small;");
 
-boostTemp = ESPUI.addControl(Number, "Boost temp        'C", "25", Turquoise, group1, boostTempCallback);
+boostTemp = ESPUI.addControl(Number, "Boost temp        'C", "25", Turquoise, group1, generalCallback);  // boostTempCallback);
             ESPUI.addControl(Min, "", "1", None, boostTemp);
             ESPUI.addControl(Max, "", "35", None, boostTemp);
             ESPUI.setElementStyle(boostTemp, "background-color: transparent; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield; width: 25%;");
@@ -357,7 +432,7 @@ text4 =     ESPUI.addControl(Label, "Eco Charge", "Eco Charge", None, group1);
             ESPUI.setElementStyle(text4, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;");
 
 // economy charging precent value in a number box
-ecoVoltNum = ESPUI.addControl(Number, "Eco Charge", "70", Emerald, group1, ecoVoltCallback);
+ecoVoltNum = ESPUI.addControl(Number, "Eco Charge", "70", Emerald, group1, generalCallback);   // ecoVoltCallback);
               ESPUI.addControl(Min, "", "50", None, ecoVoltNum);
               ESPUI.addControl(Max, "", "100", None, ecoVoltNum);
               ESPUI.setElementStyle(ecoVoltNum, "background-color: transparent; border: none; font-size: medium; text-align: center; -webkit-appearance: none; -moz-appearance: textfield; width: 25%;");
@@ -372,7 +447,7 @@ ESPUI.setElementStyle(ecoVoltLabel = ESPUI.addControl(Label, "Volts", "0", Emera
 text5 =       ESPUI.addControl(Label, "Boost Charge", "Boost Charge", None, group1);
               ESPUI.setElementStyle(text5, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;");
 
-boostVolts =  ESPUI.addControl(Number, "Boost Charge", "90", Turquoise, group1, boostVoltCallback);
+boostVolts =  ESPUI.addControl(Number, "Boost Charge", "90", Turquoise, group1, generalCallback);    //       boostVoltCallback);
               ESPUI.addControl(Min, "", "60", None, boostVolts);
               ESPUI.addControl(Max, "", "100", None, boostVolts);
               ESPUI.setElementStyle(boostVolts, "background-color: transparent; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield; width: 25%;");
@@ -385,9 +460,6 @@ chargerTimespan = ESPUI.addControl(Label, "Charger Time", "0.00", None, group1);
 
 text7 = ESPUI.addControl(Label, "Perms", "Save to memory", Emerald, group1);
         ESPUI.setElementStyle(text7, "text-align: left; font-size: small; font-family: serif; width: 100%; background-color: unset; color: black; margin-top: 20px; border-bottom: 1px solid darkslategray; padding-bottom: 5px;");
-
-// Save to EEPROM
-// ESPUI.addControl(Separator, "Mem", "Memory", None, tab2);
 
 saveButton = ESPUI.addControl(Button, "Memory", "Save", None, group1, [](Control *sender, int type) {
     if (type == B_UP) {
@@ -403,25 +475,37 @@ saveButton = ESPUI.addControl(Button, "Memory", "Save", None, group1, [](Control
         Serial.println(ESPUI.getControl(heaterNum)->value);
         Serial.println(ESPUI.getControl(pidPNum)->value);
         Serial.println(ESPUI.getControl(nameLabel)->value);
+      if (    batt.setNominalString(ESPUI.getControl(seriesConfigNum)->value.toInt())   )  {
 
+              Serial.print("ecoPrecent: ");
+              Serial.println(batt.setEcoPrecentVoltage(ESPUI.getControl(ecoVoltNum)->value.toInt()));
 
-        if (    batt.setNominalString(ESPUI.getControl(seriesConfigNum)->value.toInt()) &&
-                batt.setEcoPrecentVoltage(ESPUI.getControl(ecoVoltNum)->value.toInt()) &&
-                batt.setEcoTemp(ESPUI.getControl(ecoTempNum)->value.toInt()) &&
-                batt.setBoostPrecentVoltage(ESPUI.getControl(boostVolts)->value.toInt()) &&
-                batt.setBoostTemp(ESPUI.getControl(boostTemp)->value.toInt()) &&
-                batt.setCharger(ESPUI.getControl(text10)->value.toInt()) &&
-                batt.setResistance(ESPUI.getControl(heaterNum)->value.toInt()) &&
-                batt.setCapacity(ESPUI.getControl(text12)->value.toInt()) && 
-                batt.setPidP(ESPUI.getControl(pidPNum)->value.toInt())                          ) 
-                {
-                  Serial.println("All ok! Saving settings to memory...");  
-                  batt.saveHostname(ESPUI.getControl(nameLabel)->value);
-                  batt.saveSettings();
-        } 
-        else {
-                  Serial.println("Error: Invalid input");
-        }
+              Serial.print("setEcoTemp ");
+              Serial.println(batt.setEcoTemp(ESPUI.getControl(ecoTempNum)->value.toInt()));
+
+              Serial.print("BoostPrecentV ");
+              Serial.println(batt.setBoostPrecentVoltage(ESPUI.getControl(boostVolts)->value.toInt()));
+
+              Serial.print("BoostTemp: ");
+              Serial.println(batt.setBoostTemp(ESPUI.getControl(boostTemp)->value.toInt()));
+
+              Serial.print(" Charger: ");
+              Serial.println(batt.setCharger(ESPUI.getControl(text10)->value.toInt()));
+
+              Serial.print(" Resistance: ");
+              Serial.println(batt.setResistance(ESPUI.getControl(heaterNum)->value.toInt()));
+
+              Serial.print("Capacity: ");
+              Serial.println(batt.setCapacity(ESPUI.getControl(text12)->value.toInt()));
+
+              Serial.print("PIDP ");
+              Serial.println(batt.setPidP(ESPUI.getControl(pidPNum)->value.toFloat()));
+
+                Serial.println("All ok! Saving settings to memory...");  
+                batt.saveHostname(ESPUI.getControl(nameLabel)->value);
+                batt.saveSettings();
+      } 
+      else { Serial.println("Error: Invalid input"); }
         Serial.println("Saved in memory...");
         Serial.println(batt.getNominalString());
         Serial.println(batt.getEcoPrecentVoltage());
@@ -435,53 +519,189 @@ saveButton = ESPUI.addControl(Button, "Memory", "Save", None, group1, [](Control
         Serial.println(batt.getPidP());
     }
 });
+ESPUI.setElementStyle(saveButton, "width: 20%; text-align: center; font-size: medium; font-family: serif; margin-top: 20px; margin-bottom: 20px; border-radius: 15px;");
 
-ESPUI.setElementStyle(saveButton, "background-color: #d3d3d3; width: 20%; text-align: center; font-size: medium; font-family: serif; margin-top: 20px; margin-bottom: 20px; border-radius: 15px;");
+/*
+
+      WLAN Wifi tab 
+
+*/
+auto  wifiLabel    = ESPUI.addControl(Label, "WLAN", "", Peterriver, wifitab, generalCallback);
+                    ESPUI.setElementStyle(wifiLabel, "background-color: unset; width: 100%; color: black; font-size: medium;         ");
+
+  wifiLabelSSID = ESPUI.addControl(Label, "ssidLabel", "SSID:", Turquoise, wifiLabel);
+                  ESPUI.setElementStyle(wifiLabelSSID, "background-color: unset; width: 25%; text-align: left; font-size: small; ");
+
+  wifi_ssid_text = ESPUI.addControl(Text, "SSID", "", Alizarin, wifiLabel, textCallback);
+                  //Note that adding a "Max" control to a text control sets the max length
+                  ESPUI.addControl(Max, "", "32", None, wifi_ssid_text);
+                  ESPUI.setElementStyle(wifi_ssid_text, "background-color: transparent; width: 75%; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield;");
+
+  wifiLabelPass = ESPUI.addControl(Label, "passwd", "Password", Turquoise, wifiLabel);
+                  ESPUI.setElementStyle(wifiLabelPass, "background-color: unset; width: 25%; text-align: left; font-size: small; ");
+
+  wifi_pass_text = ESPUI.addControl(Text, "Password", "", Alizarin, wifiLabel, textCallback);
+                  ESPUI.addControl(Max, "", "64", None, wifi_pass_text);
+                  ESPUI.setElementStyle(wifi_pass_text, "background-color: transparent; width: 75%; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield;");
+ 
+ wifiButton = ESPUI.addControl(Button, "Save", "Save", Peterriver, wifiLabel,
+      [](Control *sender, int type) {
+      if(type == B_UP) {
+        Serial.println("Saving credentials to NVS...");
+        Serial.println(ESPUI.getControl(wifi_ssid_text)->value);
+        Serial.println(ESPUI.getControl(wifi_pass_text)->value);
+
+        preferences.begin("wifi", false); // "wifi" is the namespace, false means read/write
+        preferences.putString("ssid", ESPUI.getControl(wifi_ssid_text)->value);
+        preferences.putString("pass", ESPUI.getControl(wifi_pass_text)->value);
+        preferences.end(); // Close Preferences  
+      }
+      });
+  ESPUI.setElementStyle(wifiButton,"width: 20%; text-align: center; font-size: medium; font-family: serif; margin-top: 20px; margin-bottom: 20px; border-radius: 15px;");
+
+ //  clearLabelStyle = "background-color: unset; width: 100%;";
+ //  switcherLabelStyle = "width: 25%; background-color: unset;";
+//ESPUI.separator("HTTP");
+// ----- HTTP 
+
+auto      httpLabel    = ESPUI.addControl(Label, "HTTP", "Enable HTTP", Peterriver, wifitab, generalCallback);
+          httpEnable   = ESPUI.addControl(Switcher, "Enable HTTP", "", None, httpLabel, generalCallback);
+                          ESPUI.setElementStyle(ESPUI.addControl(Label, "emptyLine", "", None, httpLabel), clearLabelStyle);
+
+httpUsername            = ESPUI.addControl(Label, "Battery Charger", "Username", None, httpLabel);    
+                            ESPUI.setElementStyle(httpUsername, "background-color: unset; width: 25%; text-align: left; font-size: small;");
+ 
+          httpUser     = ESPUI.addControl(Text, "Username", "", Dark, httpLabel, textCallback);
+                          ESPUI.setElementStyle(httpUser, "background-color: transparent; width: 75%; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield;");
+                                             
+
+httpPassword            = ESPUI.addControl(Label, "Battery Charger", "Password", None,httpLabel);    
+                            ESPUI.setElementStyle(httpPassword, "background-color: unset; width: 25%; text-align: left; font-size: small;");
+
+          httpPass     = ESPUI.addControl(Text, "Password", "", Dark, httpLabel, textCallback);
+                          ESPUI.setElementStyle(httpPass, "background-color: transparent; width: 75%; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield;");
+
+                          ESPUI.setElementStyle(httpLabel, "font-family: serif; background-color: unset; width: 100%;");
+                          ESPUI.setElementStyle(httpEnable, "text-align: center; font-size: medium; font-family: serif; margin-top: 5px; margin-bottom: 5px;");
+
+uint16_t httpButton = ESPUI.addControl(Button, "Memory", "Save", None, httpLabel, [](Control *sender, int type) {
+    if (type == B_UP) {
+
+        Serial.println("Saving battery structs...");
+        Serial.println(ESPUI.getControl(httpUser)->value);  
+        Serial.println(ESPUI.getControl(httpPass)->value); 
+        Serial.println(ESPUI.getControl(httpEnable)->value);
+
+        // Open Preferences with a namespace
+        preferences.begin("http", false); // "wifi" is the namespace, false means read/write
+        preferences.putString("user", ESPUI.getControl(httpUser)->value);
+        preferences.putString("pass", ESPUI.getControl(httpPass)->value);
+        preferences.putBool("httpen", ESPUI.getControl(httpEnable)->value);
+        preferences.end(); // Close Preferences  
+        } });
+
+        ESPUI.setElementStyle(httpButton, "width: 20%; text-align: center; font-size: medium; font-family: serif; margin-top: 20px; margin-bottom: 20px; border-radius: 15px;");
+
+// ESPUI.separator("MQTT");
+//  --- MQTT
+        
+ auto   mqttLabel    = ESPUI.addControl(Label, "MQTT", "Enable MQTT", Peterriver, wifitab, generalCallback);
+                        ESPUI.setElementStyle(mqttLabel, "font-family: serif; background-color: unset; width: 100%;");
+
+// MQTT ENABLE
+        mqttEnable   = ESPUI.addControl(Switcher, "Enable MQTT", "", None, mqttLabel, generalCallback);
+                        ESPUI.setElementStyle(mqttEnable, "text-align: center; font-size: medium; font-family: serif; margin-top: 5px; margin-bottom: 5px;");
+                          ESPUI.setElementStyle(ESPUI.addControl(Label, "emptyLine", "", None, mqttLabel), clearLabelStyle);
+
+// MQTT USERNAME
+       mqttUsername = ESPUI.addControl(Label, "Username", "Username", Dark, mqttLabel);      
+                        ESPUI.setElementStyle(mqttUsername, "background-color: unset; width: 25%; text-align: left; font-size: small;");
+                        
+        mqttUser     = ESPUI.addControl(Text, "Username", "", Dark, mqttLabel, textCallback);
+                        ESPUI.setElementStyle(mqttUser, "background-color: transparent; width: 75%; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield;");
+
+// MQTT PASSWORD
+        mqttPassword = ESPUI.addControl(Label, "pass", "Password", Dark, mqttLabel);      
+                        ESPUI.setElementStyle(mqttPassword, "background-color: unset; width: 25%; text-align: left; font-size: small;");
+   
+        mqttPass     = ESPUI.addControl(Text, "Password", "", Dark, mqttLabel, textCallback);
+                        ESPUI.setElementStyle(mqttPass, "background-color: transparent; width: 75%; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield;");
 
 
-  APSwitcher =      ESPUI.addControl(Switcher, "Run only as Access Point", "", None, tab3, generalCallback);
-  httpUserAccess =  ESPUI.addControl(Label, "User Access for LAN", "HttpAccess", Peterriver, tab3, generalCallback);
-  httpUsername =    ESPUI.addControl(Text, "Username", "Not Working", Dark, httpUserAccess, textCallback);
-  httpPassword =    ESPUI.addControl(Text, "Password", "Under Construnction", Dark, httpUserAccess, textCallback);
-                    ESPUI.setElementStyle(httpUserAccess, "font-family: serif; background-color: unset;");
+// MQTT IP ADDRESS INPUT
+        mqttIpaddr   = ESPUI.addControl(Label, "ip", "IP", Dark, mqttLabel);
+                          ESPUI.setElementStyle(mqttIpaddr, "background-color: unset; width: 25%; text-align: left; font-size: small;");
+
+        mqttIp       = ESPUI.addControl(Text, "IP", "", Dark, mqttLabel, textCallback);
+                        ESPUI.setElementStyle(mqttIp, "background-color: transparent; width: 75%; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield;");
+
+
+                         
+// MQTT SaveButton  
+  mqttButton = ESPUI.addControl(Button, "Memory", "Save", None, mqttLabel, [](Control *sender, int type) {
+    if (type == B_UP) {
+        Serial.println("Saving battery structs...");
+        Serial.println(ESPUI.getControl(mqttEnable)->value);  
+        Serial.println(ESPUI.getControl(mqttUser)->value); 
+        Serial.println(ESPUI.getControl(mqttPass)->value);
+        Serial.println(ESPUI.getControl(mqttIp)->value);
+
+                // Open Preferences with a namespace
+        preferences.begin("mqtt", false); // "wifi" is the namespace, false means read/write
+        preferences.putString("user", ESPUI.getControl(mqttUser)->value);
+        preferences.putString("pass", ESPUI.getControl(mqttPass)->value);
+        preferences.putString("ip",   ESPUI.getControl(mqttIp)->value);
+        preferences.putBool("mqtten", ESPUI.getControl(mqttEnable)->value);
+        preferences.end(); // Close Preferences  
+
+        } });
+        ESPUI.setElementStyle(mqttButton, "width: 20%; text-align: center; font-size: medium; font-family: serif; margin-top: 20px; margin-bottom: 20px; border-radius: 15px;");
+
+
+//  --- Telegram
+      
+auto  tgLabel    = ESPUI.addControl(Label, "Telegram", "Enable Telegram", Peterriver, tgtab, generalCallback);
+                    ESPUI.setElementStyle(tgLabel, "font-family: serif; background-color: unset; width: 100%; ");
+
+      tgEnable   = ESPUI.addControl(Switcher, "Enable Telegram", "", None, tgLabel, generalCallback);
+                      ESPUI.setElementStyle(ESPUI.addControl(Label, "emptyLine", "", None, tgLabel), clearLabelStyle);
+                      ESPUI.setElementStyle(tgEnable, "text-align: center; font-size: medium; font-family: serif; margin-top: 5px; margin-bottom: 5px;");
+
+tgLabelUser       = ESPUI.addControl(Label, "Username", "Username", Dark, tgLabel);      
+                        ESPUI.setElementStyle(tgLabelUser, "background-color: unset; width: 25%; text-align: left; font-size: small;");
+
+      tgUser      = ESPUI.addControl(Text, "Username", "", Dark, tgLabel, textCallback);
+                      ESPUI.setElementStyle(tgUser, "background-color: transparent; width: 75%; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield;");
+
+tgLabelToken      = ESPUI.addControl(Label, "token", "Token", Dark, tgLabel);      
+                        ESPUI.setElementStyle(tgLabelToken, "background-color: unset; width: 25%; text-align: left; font-size: small;");
+
+      tgToken     = ESPUI.addControl(Text, "Token", "", Dark, tgLabel, textCallback);
+                    ESPUI.setElementStyle(tgToken, "background-color: transparent; width: 75%; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield;");
+
+
+// telegram SaveButton
+uint16_t tgButton = ESPUI.addControl(Button, "Memory", "Save", None, tgLabel, [](Control *sender, int type) {
+    if (type == B_UP) {
+        Serial.println("Saving telegram structs...");
+        Serial.println(ESPUI.getControl(tgUser)->value);  
+        Serial.println(ESPUI.getControl(tgToken)->value); 
+
+        preferences.begin("telegram", false); // "wifi" is the namespace, false means read/write
+        preferences.putString("user", ESPUI.getControl(tgUser)->value);
+        preferences.putString("token", ESPUI.getControl(tgToken)->value);
+        preferences.end(); // Close Preferences  
+
+    } });
+  ESPUI.setElementStyle(tgButton,"width: 20%; text-align: center; font-size: medium; font-family: serif; margin-top: 20px; margin-bottom: 20px; border-radius: 15px;");
+
+
   /*
-   
-   
+
     Tab: WiFi Credentials
     You use this tab to enter the SSID and password of a wifi network to autoconnect to.
    
-   
    *-----------------------------------------------------------------------------------------------------------*/
-
-  wifitab = ESPUI.addControl(Tab, "", "WiFi");
-  wifi_ssid_text = ESPUI.addControl(Text, "SSID", "", Alizarin, wifitab, textCallback);
-  //Note that adding a "Max" control to a text control sets the max length
-  ESPUI.addControl(Max, "", "32", None, wifi_ssid_text);
-  wifi_pass_text = ESPUI.addControl(Text, "Password", "", Alizarin, wifitab, textCallback);
-  ESPUI.addControl(Max, "", "64", None, wifi_pass_text);
-  ESPUI.addControl(Button, "Save", "Save", Peterriver, wifitab,
-      [](Control *sender, int type) {
-      if(type == B_UP) {
-        Serial.println("Saving credentials to EPROM...");
-        Serial.println(ESPUI.getControl(wifi_ssid_text)->value);
-        Serial.println(ESPUI.getControl(wifi_pass_text)->value);
-        unsigned int i;
-        EEPROM.begin(100);
-        for(i = 0; i < ESPUI.getControl(wifi_ssid_text)->value.length(); i++) {
-          EEPROM.write(i, ESPUI.getControl(wifi_ssid_text)->value.charAt(i));
-          if(i==30) break; //Even though we provided a max length, user input should never be trusted
-        }
-        EEPROM.write(i, '\0');
-
-        for(i = 0; i < ESPUI.getControl(wifi_pass_text)->value.length(); i++) {
-          EEPROM.write(i + 32, ESPUI.getControl(wifi_pass_text)->value.charAt(i));
-          if(i==94) break; //Even though we provided a max length, user input should never be trusted
-        }
-        EEPROM.write(i + 32, '\0');
-        EEPROM.end();
-      }
-      });
-
     ESPUI.updateControlValue(ecoTempNum, String(batt.getEcoTemp()));
     ESPUI.updateControlValue(ecoVoltNum, String(batt.getEcoPrecentVoltage()));
     ESPUI.updateControlValue(boostTemp, String(batt.getBoostTemp()));
@@ -495,19 +715,24 @@ ESPUI.setElementStyle(saveButton, "background-color: #d3d3d3; width: 20%; text-a
     ESPUI.updateControlValue(chargerTimespan, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
     ESPUI.updateControlValue(heaterNum, String(batt.getResistance()));
     ESPUI.updateControlValue(pidPNum, String(batt.getPidP()));
-    // ESPUI.updateControlValue(nameLabel, String(hostname));
+    ESPUI.updateControlValue(nameLabel, String(batt.battery.myname));
 
 
-  //Add a callback to the main selector to print the selected value
-  //This is a good example of how to use the "param" argument in the callback
-  //to pass additional information to the callback function.
-  //In this case, we pass the ID of the control that we want to update.
-  // ESPUI.getControl(mainSelector)->callback = selectBattery;
-  // ESPUI.getControl(mainSelector)->param = mainSelector;
+    ESPUI.updateSwitcher(voltSwitcher, batt.getActivateVoltageBoost());
+    ESPUI.updateSwitcher(tempSwitcher, batt.getActivateTemperatureBoost());
+
+
 
   //Finally, start up the UI.
   //This should only be called once we are connected to WiFi.
-  ESPUI.begin(HOSTNAME);
+
+
+//  if(httpEn)
+//    ESPUI.begin(hostname, httpUserAcc.c_str(), httpPassAcc.c_str());
+//  else
+    ESPUI.begin("BatteryJeesus");
+
+      //ESPUI.begin(HOSTNAME);
 }
 
 //Most elements in this test UI are assigned this generic callback which prints some
@@ -533,9 +758,7 @@ void ecoVoltCallback(Control* sender, int type) {
 
    switch (type)
     {
-    case 9:
-		if(sender->value.toInt() != 0)
-		{
+    case S_ACTIVE:
 			if(batt.setEcoPrecentVoltage(sender->value.toInt()))
         {
           ESPUI.updateLabel(ecoVoltLabel, String(batt.btryToVoltage(sender->value.toInt()), 1));
@@ -555,7 +778,10 @@ void ecoVoltCallback(Control* sender, int type) {
 	case S_INACTIVE:
 		Serial.println("Ecomode Inactive");
 		break;
-    }
+  default:
+      Serial.print(type);
+      Serial.println("unknown type: EcoVCB");
+      break;
   }
   // ESPUI.updateLabel(boostVoltLabel, String(batt.btryToVoltage(sender->value.toInt()), 2));
   // ESPUI.updateLabel(ecoVoltLabel, String(batt.btryToVoltage(sender->value.toInt()), 2));
@@ -572,43 +798,38 @@ void selectBattery(Control* sender, int type) {
     case 7:
         Serial.print("7S Battery selected");
         break;
-
     case 10:
         Serial.print("10S Battery selected");
         break;
-
     case 12:
         Serial.print("12S Battery selected");
         break;
     case 13:
         Serial.print("13S Battery selected");
         break;
-
     case 14:
         Serial.print("14S Battery selected");
         break;
-
     case 16:
         Serial.print("16S Battery selected");
         break;
-
     case 20:
         Serial.print("20S Battery selected");
         break;
 	default: 
 		current:
-		Serial.print("new Battery selected");
+		Serial.print("new Battery selected  ");
+    Serial.println(type);
 		break;
     }
 
+/*
     String battEmpty = "<br><br>      Empty             0%   =   " + String((sender->value.toInt() * (float)3 ), 1);
     String battNom   = "    <br>      Nominal        50%   =   " + String((sender->value.toInt() * (float)3.7 ), 1);
     String battFull =  "    <br>      Full              100%   =  " +  String((sender->value.toInt() * (float)4.2 ), 1);      
     String allBatt = battEmpty + battNom + battFull;
     ESPUI.updateLabel(battInfo, allBatt);
-
-
-
+  
   Serial.print("CB: id(");
   Serial.print(sender->id);
   Serial.print(") Type(");
@@ -617,22 +838,16 @@ void selectBattery(Control* sender, int type) {
   Serial.print(sender->label);
   Serial.print("' = ");
   Serial.println(sender->value);
+*/
 
 }
 /*
 
-
-
 	The numbers value button, for defining a boost voltage level in voltage
 */
 void boostVoltCallback(Control* sender, int type) {
-    // ESPUI.updateLabel(boostVoltLabel, String(batt.getBoostPrecentVoltage(), 0));
-
-
-    switch (type) {
-    case 9:             // When the button is pressed, espui button press type = 9. We would then check with the following if/else
-		if(sender->value.toInt() != 0)
-		{
+  switch (type) {
+    case S_ACTIVE:
 			if(batt.setBoostPrecentVoltage(sender->value.toInt()))
         {
           int bootVoltLabel = sender->value.toInt();
@@ -650,16 +865,20 @@ void boostVoltCallback(Control* sender, int type) {
           ESPUI.updateLabel(boostVoltLabel, String(batt.getBoostPrecentVoltage(), 2));
          	Serial.print("Boost VoltagePrecent set to: ");
           Serial.print(batt.getBoostPrecentVoltage());
-          Serial.println(" V");}
-		}
+          Serial.println(" V");
+      }	  
 		break;
 
 	case S_INACTIVE:
 		Serial.println("Ecomode Inactive");
 		break;
+  default:
+      Serial.print(type);
+      Serial.println("unknown type: BVCB");
+      break;
     }
-
 }
+
 
 /*
 
@@ -668,9 +887,7 @@ void boostVoltCallback(Control* sender, int type) {
 */
 void ecoTempCallback(Control *sender, int type) {
   switch (type) {
-    case 9:
-		if(sender->value.toInt() != 0)
-		{
+    case S_ACTIVE:
 			if(batt.setEcoTemp(sender->value.toInt()))
         {
 			   	Serial.print("Ecomode Temp set to: ");
@@ -685,11 +902,14 @@ void ecoTempCallback(Control *sender, int type) {
           Serial.print(batt.getEcoTemp());
           Serial.println(" C");
        }
-		}
 		break;
 	case S_INACTIVE:
 		Serial.println("Ecomode Inactive");
 		break;
+  default:
+      Serial.print(type);
+      Serial.println("unknown type: eTCB ");
+      break;
   }
 }
 /*
@@ -701,9 +921,7 @@ void ecoTempCallback(Control *sender, int type) {
 */
 void boostTempCallback(Control *sender, int type) {
   switch (type) {
-    case 9:
-		if(sender->value.toInt() != 0)
-		{
+    case S_ACTIVE:
 			if(batt.setBoostTemp(sender->value.toInt()))
         {
 			   	Serial.print("Boost Temp set to: ");
@@ -717,51 +935,66 @@ void boostTempCallback(Control *sender, int type) {
           Serial.print(batt.getBoostTemp());
           Serial.println(" C");
 		  }
-    }
 		break;
 	case S_INACTIVE:
 		Serial.println("Boost Temp Inactive");
 		break;
+  default:
+      Serial.print(type);
+      Serial.println(" unknown type: BtCb ");
+    break;
   }
 }
 /*
-
-
-
+    Voltage Boost Switch 
 */
 void boostVoltageSwitcherCallback(Control *sender, int type) {
     switch (type)  {
     case S_ACTIVE:
-			if(batt.activateVoltageBoost(true));
-			  Serial.print("Voltage Boost Activated");
+			if(batt.activateVoltageBoost(true))
+			  Serial.print("Voltage Boost Activated: ");
+        Serial.println(batt.getActivateVoltageBoost());
+        // ESPUI.updateSwitcher(voltSwitcher, "1");
 		break;
-
 	case S_INACTIVE:
-      if(batt.activateVoltageBoost(false));
-		    Serial.println("Voltage Boost Inactive");
-		break;
+      if(batt.activateVoltageBoost(false))
+		    Serial.println("Voltage Boost Inactive: ");
+        Serial.println(batt.getActivateVoltageBoost());
+        // ESPUI.updateSwitcher(voltSwitcher, "0");
+		break;    
+    default:
+      Serial.print(type);
+      Serial.println("  unknown type: BvswitcherCB ");
+      break;
+  
     }
 }
 /*
-
-
-
-	Temperature Boost Switch on the Front Page's Quick Controls
-
+	  Temperature Boost Switch on the Front Page's Quick Controls
 */
 void  boostTempSwitcherCallback(Control *sender, int type) {
     switch (type)    {
-    case S_ACTIVE:
-	if(batt.activateTemperatureBoost(true))
-        Serial.print("Temperature Boost Active:");
+    case S_ACTIVE: 
+	    if(batt.activateTemperatureBoost(true)) {
+        Serial.print("Temperature Boost Active: ");
+        Serial.println(batt.getActivateTemperatureBoost());
+        // ESPUI.updateSwitcher(tempSwitcher, "1");
+      }
         break;
 
     case S_INACTIVE:
-        if(batt.activateTemperatureBoost(false))
-        	Serial.println("Temperature Boost Inactive");
-		else
+        if(batt.activateTemperatureBoost(false)) {
+        	Serial.print("Temperature Boost Inactive: ");
+          Serial.println(batt.getActivateTemperatureBoost());
+          // ESPUI.updateSwitcher(tempSwitcher, "0");
+        }
+		    else
         	Serial.println("Failed");
         break;
+    default:
+      Serial.print(type);
+      Serial.println("  unknown type:  BtSwCb ");
+      break;
     }
 }
 
@@ -925,7 +1158,7 @@ void loop() {
 
   batt.loop(); // Add battery.loop() here
 
-  if(millis() - mittausmillit >= 2500)
+  if(millis() - mittausmillit >= 3000)
   {
       mittausmillit = millis();
       String wlanIpAddress;
@@ -941,8 +1174,9 @@ void loop() {
       ESPUI.updateLabel(quickPanelVoltage, String(batt.getCurrentVoltage(), 1) + " V");
       ESPUI.updateLabel(chargerTimespan, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
       ESPUI.updateLabel(autoSeriesNum, String(batt.getBatteryApprxSize()));
-      //ESPUI.updateLabel(pidPNum, String(batt.getPidP()));
 
+    
+      
 
       if (checkAndLogBoostState()) {
         logEntries += String((millis() / 60000)) + "  " + String("Voltage boost: ") + String(batt.battery.voltBoost) + "     " + String("Temp boost: ") + String(batt.battery.tempBoost) + "\n";
@@ -955,13 +1189,9 @@ void loop() {
       ESPUI.updateLabel(firstLogLabel, logEntries);
     }
 
-  if (millis() - lastMsg > interval) {
-        lastMsg = millis();
-        // publishMessage();
-  }
-
 }
 
+/*
 void readStringFromEEPROM(String& buf, int baseaddress, int size) {
 	buf.reserve(size);
 	for (int i = baseaddress; i < baseaddress+size; i++) {
@@ -970,6 +1200,7 @@ void readStringFromEEPROM(String& buf, int baseaddress, int size) {
 		if(!c) break;
 	}	
 }
+*/
 
 bool checkAndLogState() {
     if ((batt.battery.vState != batt.battery.previousVState) || (batt.battery.tState != batt.battery.previousTState)) {
@@ -1003,7 +1234,7 @@ void connectWifi() {
 	int connect_timeout;
 
 #if defined(ESP32)
-	WiFi.setHostname(HOSTNAME);
+	WiFi.setHostname(hostname);
 #else
 	WiFi.hostname(HOSTNAME);
 #endif
@@ -1012,11 +1243,6 @@ void connectWifi() {
 	//Load credentials from EEPROM 
 	if(!(FORCE_USE_HOTSPOT)) {
 		yield();
-		EEPROM.begin(100);
-		String stored_ssid, stored_pass;
-		readStringFromEEPROM(stored_ssid, 0, 32);
-		readStringFromEEPROM(stored_pass, 32, 96);
-		EEPROM.end();
 	
 		//Try to connect with stored credentials, fire up an access point if they don't work.
 		#if defined(ESP32)
@@ -1036,7 +1262,7 @@ void connectWifi() {
 		Serial.println(WiFi.localIP());
 		Serial.println("Wifi started");
 
-		if (!MDNS.begin(HOSTNAME)) {
+		if (!MDNS.begin(hostname)) {
 			Serial.println("Error setting up MDNS responder!");
 		}
 	} else {
@@ -1051,28 +1277,6 @@ void connectWifi() {
 			Serial.print(",");
 			connect_timeout--;
 		} while(connect_timeout);
-	}
-}
-
-void enterWifiDetailsCallback(Control *sender, int type) {
-	if(type == B_UP) {
-		Serial.println("Saving credentials to EPROM...");
-		Serial.println(ESPUI.getControl(wifi_ssid_text)->value);
-		Serial.println(ESPUI.getControl(wifi_pass_text)->value);
-		unsigned int i;
-		EEPROM.begin(100);
-		for(i = 0; i < ESPUI.getControl(wifi_ssid_text)->value.length(); i++) {
-			EEPROM.write(i, ESPUI.getControl(wifi_ssid_text)->value.charAt(i));
-			if(i==30) break; //Even though we provided a max length, user input should never be trusted
-		}
-		EEPROM.write(i, '\0');
-
-		for(i = 0; i < ESPUI.getControl(wifi_pass_text)->value.length(); i++) {
-			EEPROM.write(i + 32, ESPUI.getControl(wifi_pass_text)->value.charAt(i));
-			if(i==94) break; //Even though we provided a max length, user input should never be trusted
-		}
-		EEPROM.write(i + 32, '\0');
-		EEPROM.end();
 	}
 }
 

@@ -1,4 +1,0 @@
-/home/lassi/Documents/PlatformIO/Projects/NewBattery/build/CMakeFiles/runTests.dir
-/home/lassi/Documents/PlatformIO/Projects/NewBattery/build/CMakeFiles/test.dir
-/home/lassi/Documents/PlatformIO/Projects/NewBattery/build/CMakeFiles/edit_cache.dir
-/home/lassi/Documents/PlatformIO/Projects/NewBattery/build/CMakeFiles/rebuild_cache.dir
