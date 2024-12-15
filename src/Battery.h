@@ -143,21 +143,21 @@ public:
     uint8_t     vState              = 0;
     uint8_t     tState              = 0;
 
-    uint8_t     capct               = 12;
+    uint8_t     capct               = 0;
     bool        chargerState        = false;
 
     uint8_t     ecoVoltPrecent      = 50;
     uint8_t     boostVoltPrecent    = 80;
 
     // Charger
-    struct {
+    struct chrgr{
         bool        enable              = false;
         uint8_t     current             = 0;
     } charger;
 
 
     // Heater element
-    struct {
+    struct heating{
         bool        enable              = false;
         uint8_t     maxPower            = 30;
         uint8_t     resistance          = 50;
@@ -169,38 +169,37 @@ public:
     } heater;
 
     // HTTP access
-    struct {
+    struct httpacc {
         bool enable     = false;
-        String username = "batt";
-        String password = "ass";
+        String username = "";
+        String password = "";
     } http;
 
-    struct {
-        String ssid = "Olohuone";
-        String pass = "10209997";
+    struct wifi {
+        String ssid = "";
+        String pass = "";
     } wlan;
 
     // MQTT
-    struct {
-        String      server          = "192.168.1.150";
+    struct mqttconn {
+        String      server          = "";
         uint16_t    port            = 1883;
-        String      username        = "mosku";
-        String      password        = "kakkapylly123";
+        String      username        = "";
+        String      password        = "";
         uint32_t    lastMessageTime = 0;
-        bool        enable          = true;
+        bool        enable          = false;
     } mqtt;
 
     // Telegram
-    struct {
-            String token = "7875426228:AAE5HQJSmiphhDAD-CynCpamfHmk65hkF1A";
-            int64_t chatId = 922951523;
-            bool enable = true;
-            unsigned long lastMessageTime = 0;
-            bool alertsEnabled = true;
-            uint32_t deltaVoltage = 0;
+    struct tg {
+        String token = "7875426228:AAE5HQJSmiphhDAD-CynCpamfHmk65hkF1A";
+        int64_t chatId = 922951523;
+        bool enable = false;
+        unsigned long lastMessageTime = 0;
+        bool alertsEnabled = true;
+        uint32_t deltaVoltage = 0;
     } telegram;
 };
-
 
     batteryState battery;
 
@@ -231,6 +230,16 @@ public:
     // Global variables
     const char* MYTZ = "EET-2EEST,M3.5.0/3,M10.5.0/4"; 
 
+
+    enum SettingsType {
+    SETUP,
+    WIFI,
+    HTTP,
+    MQTT,
+    TELEGRAM,
+    PID,
+    ALL
+    };
 
     // Battery Voltage Reading variables.
     u_int32_t MOVAreadings[MOVING_AVG_SIZE] = {0};
@@ -300,8 +309,8 @@ public:
  
     void readTemperature();
     void handleBatteryControl();    // Main control logic for battery
-    void saveSettings();
-    void loadSettings();
+    void saveSettings(SettingsType type);
+    void loadSettings(SettingsType type);
 
     float getTemperature();         // Returns the current battery temperature
     int getBatteryDODprecent();
@@ -366,12 +375,16 @@ public:
 
     void publishBatteryData();
 
-
-
     void mqttSetup();
     void handleMqtt();
-    
+    bool getMqttState();
+    bool setMqttState(bool status);
 
+    bool getTelegramEn();
+    bool setTelegramEn(bool status);
+
+    bool getHttpEn();
+    bool setHttpEn(bool status);
 };
 
 #endif // BATTERY_H
