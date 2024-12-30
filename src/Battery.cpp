@@ -7,44 +7,13 @@
 #include <PubSubClient.h>
 #include <AsyncTelegram2.h>
 #include <WiFiClientSecure.h>
+// #include "TelegramBot.h"
+#include <cctype>
 
-
-
-
-/*
-
-This is the first version of the battery control system. Save this for later debugging, and testing. 
-So one can define which was the cause if something goes wrong. 
-
--- Kallen testiversio: Huomita. Mosfetin gatelle asennettin zener diodit suojaamaan. PTC rele unohtui, mutta ei toistaiseksi vielä lämmitystä tarkoitusta
-    rakentaa hänellä.
-
-    Kallen tallennus
-
-
-
-    TODO:
-
-    PID: P value save
-    Wifi Access Point mode on after certain timeout of no wifi availability
-    save hostname to preferences and to as mdns hostname.
-    save wifi credentials to preferences
-    save mqtt credentials to preferences
-    save ADC voltage multiplier to preferences
-    random reboots -> oscillation.
-
-
-
-
-
-
-
-*/
+#define DEBUG
 
 #define LOG_BUFFER 50
 #define LOGS_SIZE 10
-
-// batterys Battery::state;
 
 struct logEntry {
     int voltageState;
@@ -58,12 +27,6 @@ struct statesLog {
     logEntry entries[LOGS_SIZE];
     int index;
 };
-
-statesLog batteryLog;
-
-//Battery::Battery(int tempSensor, int voltagePin, int heaterPin, int chargerPin, int greenLed, 
-//                    int yellowLed, int redLed);
-
 
 Battery::~Battery() {
     digitalWrite(heaterPin, LOW);    // Turn off heater
@@ -83,26 +46,31 @@ Battery::~Battery() {
 
 void Battery::setup() {
 
-        pinMode(CHARGER_PIN, OUTPUT);
+        pinMode(chargerPin, OUTPUT);
         pinMode(heaterPin, OUTPUT);
+        pinMode(redLed, OUTPUT);
+        pinMode(greenLed, OUTPUT);
+        pinMode(yellowLed, OUTPUT);
+
+
+        digitalWrite(heaterPin, LOW);
+        digitalWrite(chargerPin, LOW);
+        digitalWrite(redLed, LOW);
+        digitalWrite(greenLed, LOW);
+        digitalWrite(yellowLed, LOW);
+
+
+        // heaterPID.SetMode(QuickPID::Control::manual);
+        // heaterPID.SetOutputLimits(0, 255);
+        // heaterPID.SetSampleTimeUs(1000 * 1000); // 1 second
 
         dallas.begin();
 
-        adc1_config_width(ADC_WIDTH_12Bit);
-        adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
-        esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH_BIT_12, V_REF, &characteristics);
+        tuner.Configure(battery.stune.inputSpan, battery.stune.outputSpan, battery.stune.outputStart, battery.stune.outputStep, battery.stune.testTimeSec, battery.stune.settleTimeSec, battery.stune.samples);
+        tuner.SetEmergencyStop(battery.stune.tempLimit);
 
-        heaterPID = QuickPID(&pidInput, &pidOutput, &pidSetpoint, kp, ki, kd, QuickPID::Action::direct);
-        heaterPID.SetTunings(kp, ki, kd); //apply PID gains
-        heaterPID.SetOutputLimits(0, 255);
-        heaterPID.SetSampleTimeUs(1000 * 1000); // 1 second.
-        heaterPID.SetMode(QuickPID::Control::manual);   
-
-        tuner.Configure(inputSpan, outputSpan, outputStart, outputStep, testTimeSec, settleTimeSec, samples);
-        tuner.SetEmergencyStop(tempLimit);
-
-        ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
-        ledcAttachPin(heaterPin, PWM_CHANNEL);
+        // ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
+        // ledcAttachPin(heaterPin, PWM_CHANNEL);
 
         green.start();
         green.setDelay(1000);
@@ -110,226 +78,187 @@ void Battery::setup() {
         yellow.start();
         yellow.setDelay(1000);
 
-        preferences.begin("btry", false);
-        float tempppi = float(30);
-        preferences.putFloat("temperature", tempppi);
-        preferences.end();
-
         red.start();
         red.setDelay(1000, 2000);
 
-        telegram.setUpdateTime(1000);
-        telegram.setTelegramToken((battery.telegram.token).c_str());
-        configTzTime(MYTZ, "time.google.com", "time.windows.com", "pool.ntp.org");
-     
-        #if USE_CLIENTSSL == false
-        client.setCACert(telegram_cert);
-        #endif
-
-        client.setInsecure();  // Skip certificate validation
-/*
-        telegram.begin();
-                   // Add reply keyboard
-            isKeyboardActive = false;
-                        
-            myMainMenuKbd.addButton(Status, KeyboardButtonSimple);               // Voltage, temp, boost, boost, Ip, etc
-            myMainMenuKbd.addButton(Boost, KeyboardButtonSimple);                 // activate Temp or Volt Boost
-            myMainMenuKbd.addRow();
-            myMainMenuKbd.addButton("Manual", KeyboardButtonSimple);               // External URL -> github
-            myMainMenuKbd.addButton("Settings", KeyboardButtonSimple);           // eco & boost limits
-            myMainMenuKbd.addRow();
-            myMainMenuKbd.addButton("Logs", KeyboardButtonSimple);
-            myMainMenuKbd.addButton("End", KeyboardButtonSimple);
-
-            StatusKbd.addButton("Status", Status, KeyboardButtonQuery);
-            StatusKbd.addRow();
-            StatusKbd.addButton("Voltage", STATUSCB, KeyboardButtonQuery);
-            StatusKbd.addButton("Temperature", STATUSCB, KeyboardButtonQuery);
-            StatusKbd.addRow();
-            StatusKbd.addButton(" V   ", BOOSTCB, KeyboardButtonQuery);
-            StatusKbd.addButton(" C   ", BOOSTCB, KeyboardButtonQuery);    
-
-            
-            StatusKbd.addButton("Temperature: C", KeyboardButtonSimple);
-            StatusKbd.addRow();
-            StatusKbd.addRow();
-            StatusKbd.addButton("Volt Boost: 80% ");
-            StatusKbd.addButton("Temp Boost: 32 °C ");
-            StatusKbd.addRow();
-            StatusKbd.addButton("To: 80%");
-            StatusKbd.addButton("To: 32 °C");
-            StatusKbd.addRow();
-            StatusKbd.addButton("Volt: Start", KeyboardButtonSimple);
-            StatusKbd.addButton("Temp: Start", KeyboardButtonSimple);
-            StatusKbd.addRow();
-            StatusKbd.addButton("Volt: Stop", KeyboardButtonSimple);
-            StatusKbd.addButton("Temp: Stop", KeyboardButtonSimple);
-            StatusKbd.addRow();
-            StatusKbd.addButton("Back", KeyboardButtonSimple);
-            
-
-            char welcome_msg[128];
-            snprintf(welcome_msg, 128, "BOT @%s online\n/help all commands avalaible.", telegram.getBotName());
-            telegram.sendTo(battery.telegram.chatId, welcome_msg);
-            */
-
-
-        // General settings from preferences
-        loadSettings(ALL);
-        mqttSetup();
+    // loadSettings(ALL);
+    loadSettings(ALL);
 }
-void Battery::loop() {
 
+void Battery::loop() {
     red.blink();
     green.blink();   
     yellow.blink();  
 
     handleBatteryControl();         // Logic for battery control
 
-    // readVoltage(5);                 // Voltage reading
+    readVoltage(5000);                 // Voltage reading
 
-    updateHeaterPID();              // temperature control
+    // updateHeaterPID();              // temperature control
+
+    // controlHeaterPWM(pidOutput);
     
-    //readTemperature();              // Temperature reading
+    readTemperature();              // Temperature reading
+
+    // handleMqtt();                   // handle mqtt loop & connection & enable
 
 
-    handleMqtt();                   // handle mqtt loop & connection & enable
 
+    /*
+    if (battery.stune.firstRunPID) {
+        // Consider enabling the heater if needed during the first run
+        // battery.heater.enable  = true; // Uncomment if you want to enable the heater
 
+       pidInput = battery.temperature;
+       pidSetpoint = battery.wantedTemp;
 
-    if (this->battery.telegram.enable) {
-        TBMessage msg;
+        //tuner.Configure(40, 255, 0, 150, 200, 10, 200);
+        //tuner.SetEmergencyStop(40);
 
-        if (millis() - battery.telegram.lastMessageTime > 3600) {  // 1 hour
-            if ((battery.milliVoltage - battery.telegram.deltaVoltage) > 500 || (battery.telegram.deltaVoltage - battery.milliVoltage) > 500) {
-                char voltage[64];
-                snprintf(voltage, 64, "Voltage: %0.1f V \n Temp:   %0.1f °C", (battery.milliVoltage / float(1000)), battery.temperature );
-                telegram.sendTo(battery.telegram.chatId, voltage);
-                battery.telegram.lastMessageTime = millis();
-            }
-            battery.telegram.deltaVoltage = battery.milliVoltage;
-        }
-            // feedback loop time
-        if (millis() - tgLoop > 500) {
-            tgLoop = millis();
-            
-            if(telegram.getNewMessage(msg)) {
-            
-            // check what kind of message I received
-            MessageType msgType = msg.messageType;
-            String msgText = msg.text;
- 
-            switch (msgType) {
-              case MessageText:
-                // received a text message
-                Serial.print("\nMsg received: ");
-                Serial.println(msgText);
-                // check if is show keyboard command
-                if (msgText.equalsIgnoreCase("/start")) {
-                  // the user is asking to show the reply keyboard --> show it
-                  telegram.sendMessage(msg, "Battery Jeesus", myMainMenuKbd);
-                }
-                else if (msgText.equalsIgnoreCase("/status")) {
-                  telegram.sendMessage(msg, "Battery Jeesus:", StatusKbd);
-                  isKeyboardActive = true;
-                }
+        float optiTuner =  tuner.softPwm(heaterPin, pidInput, pidOutput, pidSetpoint, battery.stune.outputSpan, 0);
 
-                // check if the reply keyboard is active
-                else if (isKeyboardActive) {
-                  // is active -> manage the text messages sent by pressing the reply keyboard buttons
-                  if (msgText.equalsIgnoreCase("/end")) {
-                    // sent the "hide keyboard" message --> hide the reply keyboard
-                    telegram.removeReplyKeyboard(msg, "Reply keyboard removed");
-                    isKeyboardActive = false;
-                  } else {
-                    // print every others messages received
-                    telegram.sendMessage(msg, msg.text);
-                  }
-                }
-
-                // the user write anything else and the reply keyboard is not active --> show a hint message
-                else {
-                  telegram.sendMessage(msg, "Try /start or /inline or /end");
-                }
+        switch (tuner.Run()) {
+            case tuner.sample: // active once per sample during test
+                pidInput = battery.temperature;
+                tuner.plotter(pidInput, pidOutput, pidSetpoint, 0.1f, 10); // output scale 0.5, plot every 3rd sample
                 break;
 
-              case MessageQuery:
-                // received a callback query message
-                msgText = msg.callbackQueryData;
-                Serial.print("\nCallback query message received: ");
-                Serial.println(msg.callbackQueryData);
+           case tuner.tunings: // active just once when sTune is done
+            tuner.GetAutoTunings(&kp, &ki, &kd); // Add & to pass addresses of the variables
+            heaterPID.SetOutputLimits(float(0), float(battery.stune.outputSpan * 0.1));
+            heaterPID.SetSampleTimeUs((battery.stune.outputSpan - 1) * 1000);
+            heaterPID.SetMode(QuickPID::Control::automatic); // the PID is turned on
+            heaterPID.SetProportionalMode(QuickPID::pMode::pOnMeas);
+            heaterPID.SetAntiWindupMode(QuickPID::iAwMode::iAwClamp);
+            heaterPID.SetTunings(kp, ki, kd); // update PID with the new tunings
+            break;
 
-                if (msgText.equalsIgnoreCase(Status)) {
-                    telegram.sendMessage(msg, "Battery Jeesus:", StatusKbd);
-                    isKeyboardActive = true;
-                }
-                else if (msgText.equalsIgnoreCase(Boost)) {
-                    telegram.sendMessage(msg, "Boost:", BoostKbd);
-                    isKeyboardActive = true;
-                }
-                break;
-
-              case MessageLocation: {
-                  // received a location message
-                  String reply = "Longitude: ";
-                  reply += msg.location.longitude;
-                  reply += "; Latitude: ";
-                  reply += msg.location.latitude;
-                  Serial.println(reply);
-                  telegram.sendMessage(msg, reply);
-                  break;
-                }
-
-              case MessageContact: {
-                  // received a contact message
-                  String reply = "Contact information received:";
-                  reply += msg.contact.firstName;
-                  reply += " ";
-                  reply += msg.contact.lastName;
-                  reply += ", mobile ";
-                  reply += msg.contact.phoneNumber;
-                  Serial.println(reply);
-                  telegram.sendMessage(msg, reply);
-                  break;
-                }
-
-              default:
-                break;
-            }    
-        }
-   
+           case tuner.runPid: // active once per sample after tunings
+             pidInput = battery.temperature;
+             heaterPID.Compute();
+           //   Input = input, Output = output;
+             tuner.plotter(pidInput, optiTuner, pidSetpoint, 0.5f, 3);
+             break;
+        } 
+    // }
     }
 
+    */
+}  // end loop
 
-/*
-    // MQTT on or off
-    if (battery.mqtt.enabled) {
-        mqtt.loop();
-        if (millis() - battery.mqtt.lastMessageTime > 30000) {
-            char buffer[16];
-            char topicBuffer[48];
-            sprintf(buffer, "%u", battery.size);
-            sprintf(topicBuffer, "battery/%s/size", String("Helmis"));
-            mqtt.publish(topicBuffer, buffer);
-        }
-    }
-*/
-
-
- }
-// end loop
-}
 /*
     Control the PWM with updateHeaterPID function
 */
 void Battery::controlHeaterPWM(uint8_t dutyCycle) {
-    ledcWrite(PWM_CHANNEL, dutyCycle);
+       // if(battery.heater.enable) {
+        // heaterPID.Compute();
+        // ledcWrite(PWM_CHANNEL, pidOutput);
+       // }
 }
 /*
     the QuickPID Wrapping Function, executed every second. 
 */
 void Battery::updateHeaterPID() {
+  
 
+    // Check if it's the first run for the tuning process
+
+}
+
+
+
+
+
+/*
+        sTune tuner = sTune(&pidInput, &pidOutput, tuner.ZN_PID, sTune::Action::directIP, sTune::SerialMode::printALL);
+        tuner.Configure(40, 255, 0, 100, 200, 20, 200);
+        tuner.SetEmergencyStop(battery.stune.tempLimit);
+        tuner.softPwm(32, pidInput, pidOutput, 0, 255, 0);
+        pidSetpoint = 35;
+        pidInput = battery.temperature;
+
+        Serial.println("First run");
+        Serial.print("pidSetpoint: ");
+        Serial.println(pidSetpoint);
+        Serial.print("pidInput: ");
+        Serial.println(pidInput);
+        Serial.print("pidOutput: ");
+        Serial.println(pidOutput);
+        Serial.print("heaterPin: ");
+        Serial.println(heaterPin);
+
+
+        tuner.Configure(40, 255, 0, 100, 200, 20, 200);
+        tuner.SetEmergencyStop(battery.stune.tempLimit);
+
+        Serial.print("tunerConfigure: ");
+        Serial.println(battery.stune.inputSpan);
+        Serial.print("tunerConfigure: ");
+        Serial.println(battery.stune.outputSpan);
+        Serial.print("tunerConfigure: ");
+        Serial.println(battery.stune.outputStart);
+        Serial.print("tunerConfigure: ");
+        Serial.println(battery.stune.outputStep);
+        Serial.print("tunerConfigure: ");
+        Serial.println(battery.stune.testTimeSec);
+        Serial.print("tunerConfigure: ");
+        Serial.println(battery.stune.settleTimeSec);
+        Serial.print("tunerConfigure: ");
+        Serial.println(battery.stune.samples);
+
+
+        switch (tuner.Run()) {
+            case tuner.sample: // Active once per sample during test
+                pidInput = battery.temperature; // Update the PID input with the current temperature
+                Serial.println("Sample");
+                tuner.plotter(pidInput, pidOutput, pidSetpoint, 1, 30);
+                break;
+
+            case tuner.tunings: // Active just once when sTune is done
+                Serial.println("Tunings");
+                pidInput = battery.temperature;
+                tuner.GetAutoTunings(&battery.pid.PID_P, &battery.pid.PID_I, &battery.pid.PID_D); // Save tuned values
+                heaterPID.SetOutputLimits(0, battery.heater.maxOutput);
+                heaterPID.SetSampleTimeUs((battery.heater.maxOutput - 1) * 1000);
+                heaterPID.SetMode(QuickPID::Control::automatic); // Turn on the PID
+                heaterPID.SetProportionalMode(QuickPID::pMode::pOnMeas);
+                heaterPID.SetAntiWindupMode(QuickPID::iAwMode::iAwClamp);
+                heaterPID.SetTunings(battery.pid.PID_P, battery.pid.PID_I, battery.pid.PID_D); // Update PID with new tunings
+                battery.stune.firstRunPID = false; // Set to false after tuning
+                break; // Exit the function after tuning
+
+            case tuner.runPid: // Active once per sample after tunings
+                Serial.println("RunPid");
+                pidInput = battery.temperature; // Update the PID input
+                heaterPID.Compute(); // Compute the PID output
+                pidOutput = heaterPID.GetOutputSum(); // Changed from GetOutput to getOutput
+                // Save the tuned values in the battery struct
+                battery.pid.PID_P = heaterPID.GetKp();
+                battery.pid.PID_I = heaterPID.GetKi();
+                battery.pid.PID_D = heaterPID.GetKd();
+                Serial.print("Tuned values: ");
+                Serial.print(heaterPID.GetKp());
+                Serial.print(" ");
+                Serial.print(heaterPID.GetKi());
+                Serial.print(" ");
+                Serial.println(heaterPID.GetKd());
+                battery.heater.enable = true; // Ensure heater is enabled after tuning
+                break; // Exit the function after saving
+
+            default:
+                Serial.println("Unknown type in the Tuner");
+                Serial.println(tuner.Run()); // Print the unexpected state
+                break;
+        }
+*/
+    //}
+
+
+
+
+
+
+/*
 firstRun = false;
     if(firstRun) {
         pidSetpoint = pidSetpoint;
@@ -337,11 +266,12 @@ firstRun = false;
         tuner.softPwm(heaterPin, pidInput, pidOutput, pidSetpoint, outputSpan, 1);
             switch (tuner.Run()) {
                 case tuner.sample: // active once per sample during test
-                  this->pidInput = battery.temperature;
+                  pidInput = battery.temperature;
                   tuner.plotter(pidInput, pidOutput, pidSetpoint, 1, 60);
                   break;
                 case tuner.tunings: // active just once when sTune is done
                   tuner.GetAutoTunings(&kp, &ki, &kd); // sketch variables updated by sTune
+                  tuner.Configure();
                   heaterPID.SetOutputLimits(0, outputSpan);
                   heaterPID.SetSampleTimeUs((outputSpan - 1 ) * 1000);
                   heaterPID.SetMode(QuickPID::Control::automatic); // the PID is turned on
@@ -356,7 +286,7 @@ firstRun = false;
                     Serial.println(kd);
                   break;
                 case tuner.runPid: // active once per sample after tunings
-                  this->pidInput = battery.temperature;
+                  pidInput = battery.temperature;
                   heaterPID.Compute();
                   tuner.plotter(pidInput, pidOutput, pidSetpoint, 1.0f, 60);
                   tuner.GetAutoTunings(&kp, &ki, &kd); // sketch variables updated by sTune
@@ -372,9 +302,11 @@ firstRun = false;
 
         Battery::adjustHeaterSettings();
 
-        this->pidInput = battery.temperature; // Update the input with the current temperature
-        this->pidSetpoint = battery.wantedTemp; // Update the setpoint with the wanted temperature
-        /*
+        pidInput = battery.temperature; // Update the input with the current temperature
+        pidSetpoint = battery.wantedTemp; // Update the setpoint with the wanted temperature
+        
+        
+        
         Serial.print("PID: ");
         Serial.print("O: ");
         Serial.print(pidOutput);
@@ -400,14 +332,16 @@ firstRun = false;
         Serial.print(" ");
         Serial.print(" Temp: ");
         Serial.print(battery.temperature);
-        */
+        
         uint8_t powerOutput = pidOutput;
         // Serial.println(powerOutput);
         
         heaterPID.Compute();
         controlHeaterPWM(powerOutput); // Control the heater with the PID output
     }
-}
+*/
+
+
 /*
         Dallas temp sensor function
 
@@ -416,7 +350,7 @@ firstRun = false;
 */
 void Battery::readTemperature() {
 
-    if (millis() - dallasTime  >= 2500) {
+    if (millis() - dallasTime  >= 1000) {
         dallasTime = millis();
         dallas.requestTemperatures();
         float temperature = dallas.getTempCByIndex(0);
@@ -432,54 +366,24 @@ void Battery::readTemperature() {
     }
 }
 
-
 void Battery::handleBatteryControl() {
     uint32_t currentMillis = millis(); 
     
     if (currentMillis - lastVoltageStateTime >= 1000) {
-        battery.previousVState = battery.vState;
-        battery.previousTState = battery.tState;
+        battery.prevVState = battery.vState;
+        battery.prevTState = battery.tState;
 
-        // battery.previousVState = battery.vState;
-        // battery.previousTState = battery.tState;
-
-        TempState tState;
-        VoltageState vState;
-
-/*  enum VoltageState {
-        LAST_RESORT             =   0,
-        LOW_VOLTAGE_WARNING     =   1,  
-        PROTECTED               =   2,
-        ECONOMY                 =   3,
-        BOOST                   =   4,  
-        VBOOST_RESET            =   5   };
-
-    enum TempState {
-        SUBZERO                 =  0,
-        ECO_TEMP                =  1,
-        BOOST_TEMP              =  2,
-        OVER_TEMP               =  3,
-        TEMP_WARNING            =  4,
-        TBOOST_RESET            =  5,
-        DEFAULT_TEMP            =  6 }; */
-
-
-        // First Primary control of the battery charging and heating's state selection. To simplify the logic.
-        // 1. we cant charge if the battery is too hot or too cold
-        // if we were to have favorable conditions for charging, then we can charge according to the voltage level.
-        // if not, then we can't charge, and we might need to heat or cool the battery first.
-
-        if(battery.temperature > float(0) && battery.temperature < float(40)) { 
-            vState = getVoltageState(battery.voltageInPrecent, battery.ecoVoltPrecent, battery.boostVoltPrecent);  
+        if(battery.temperature > 0 && battery.temperature < 40) { 
+            battery.vState = this->getVoltageState(battery.voltageInPrecent);  
         }
         else {   
             charger(false);
-            tState = getTempState(battery.temperature, battery.heater.ecoTemp, battery.heater.boostTemp);         
+            battery.tState = this->getTempState(battery.temperature);         
         }
-    switch (vState) {
+    switch (battery.vState) {
             case LAST_RESORT:
-                    tState = getTempState(battery.temperature, 2, 3);
-                    if(tState != SUBZERO && tState != TEMP_WARNING) 
+                    battery.tState = this->getTempState(battery.temperature);
+                    if(battery.tState != SUBZERO && battery.tState != TEMP_WARNING) 
                         {
                             charger(true); 
                             red.setDelay(1000, 2000);
@@ -493,10 +397,9 @@ void Battery::handleBatteryControl() {
                         }
                 break;
             case LOW_VOLTAGE_WARNING:
+                    battery.tState = this->getTempState(battery.temperature);
 
-                    tState = getTempState(battery.temperature, battery.heater.ecoTemp, battery.heater.ecoTemp);
-
-                    if(tState != SUBZERO && tState != TEMP_WARNING) 
+                    if(battery.tState != SUBZERO && battery.tState != TEMP_WARNING) 
                         { 
                             charger(true); 
                             red.setDelay(1000);
@@ -510,48 +413,44 @@ void Battery::handleBatteryControl() {
                         }
                 break;
             case PROTECTED:
-
                     red.setDelay(1000, 0);
                     yellow.setDelay(1000);
                     green.setDelay(1000, 0);
 
-                    tState = getTempState(battery.temperature, battery.heater.ecoTemp, battery.heater.boostTemp);
+                    battery.tState = this->getTempState(battery.temperature);
 
-                    if(tState != SUBZERO && tState != TEMP_WARNING) { charger(true); }
+                    if(battery.tState != SUBZERO && battery.tState != TEMP_WARNING) { charger(true); }
 
                 break;
             case ECONOMY:
-
                     red.setDelay(1000, 0);
                     green.setDelay(0, 1000);
                     yellow.setDelay(1000);
 
-                    tState = getTempState(battery.temperature, battery.heater.ecoTemp, battery.heater.boostTemp);
+                    battery.tState = this->getTempState(battery.temperature);
 
-                    if(tState != SUBZERO && tState != TEMP_WARNING ) 
+                    if(battery.tState != SUBZERO && battery.tState != TEMP_WARNING ) 
                         { charger(true); }
 
                 break;
             case BOOST:
-
                     red.setDelay(1000, 0);
                     green.setDelay(0, 1000);
                     yellow.setDelay(1000);
 
-                    tState = getTempState(battery.temperature, battery.heater.ecoTemp, battery.heater.boostTemp);
+                    battery.tState = this->getTempState(battery.temperature);
 
-                    if ((tState != SUBZERO && tState != TEMP_WARNING ) && battery.voltBoost)   // if not in cold or warning state, and boost is active
+                    if ((battery.tState != SUBZERO && battery.tState != TEMP_WARNING ) && battery.voltBoost)   // if not in cold or warning state, and boost is active
                         { charger(true); }                                                         // then charge
                     else 
                         { charger(false); }
                 break;
             case VBOOST_RESET:
-
                     red.setDelay(1000, 0);
                     yellow.setDelay(1000, 0);
                     green.setDelay(0, 1000);
 
-                    tState = getTempState(battery.temperature, battery.heater.ecoTemp, battery.heater.boostTemp);
+                    battery.tState = this->getTempState(battery.temperature);
 
                     if (!battery.voltBoost) 
                         { charger(false); }
@@ -565,48 +464,40 @@ void Battery::handleBatteryControl() {
             break;
         }
 
-
-    switch (tState) {
+    switch (battery.tState) {
             case SUBZERO:
-
                     red.setDelay(0, 1000);
 
                     charger(false);
 
                  break;
             case ECO_TEMP:
-
                     if(battery.tempBoost) { battery.wantedTemp = battery.heater.boostTemp; }
                     else { battery.wantedTemp = battery.heater.ecoTemp; }
 
                 break;
             case BOOST_TEMP:
-
                     if(battery.tempBoost) { battery.wantedTemp = battery.heater.boostTemp; }
                     else { battery.wantedTemp = battery.heater.ecoTemp; }
 
                 break;
             case OVER_TEMP:
-
                     battery.wantedTemp = battery.heater.ecoTemp;
                     battery.tempBoost = false;
 
                  break;
             case TEMP_WARNING:
-
                     charger(false);
                     battery.wantedTemp = 0;
                     // controlHeaterPWM(0);
 
                 break;
             case TBOOST_RESET:
-
                     battery.wantedTemp = battery.heater.ecoTemp;
                     battery.tempBoost = false;
 
                 break;
            case DEFAULT_TEMP:
-
                     // controlHeaterPWM(0);
                     battery.wantedTemp = 0;
 
@@ -616,32 +507,33 @@ void Battery::handleBatteryControl() {
                 break;
     }
 
-
-    Serial.print("Temp");
+    Serial.print("Temp: ");
     Serial.print(battery.temperature);
 
-    Serial.print(" Kp: ");
-    Serial.print(Battery::kp);
+    // Serial.print(" Kp: ");
+    // Serial.print(Battery::kp);
 
-    Serial.print(" Ki: ");
-    Serial.print(Battery::ki);
+    // Serial.print(" Ki: ");
+    // Serial.print(Battery::ki);
     Serial.print(" ");
-    Serial.print(tState);
+    Serial.print(battery.tState);
     Serial.print(" ");
-    Serial.print(vState);
-    Serial.print(" in:  ");
-    Serial.print(pidInput);
-    Serial.print(" Out:  ");
-    Serial.print(pidOutput);
-    Serial.print(" Set:  ");               
-    Serial.print(pidSetpoint);        
+    Serial.print(battery.vState);
+   //  Serial.print(" in:  ");
+   //  Serial.print(pidInput);
+   //  Serial.print(" Out:  ");
+   //  Serial.print(pidOutput);
+   //  Serial.print(" Set:  ");               
+   //  Serial.print(pidSetpoint);        
     Serial.print(" Vstate: ");
-    Serial.print(static_cast<int>(vState));
+    Serial.print(static_cast<int>(battery.vState));
     Serial.print(", Tstate: ");
-    Serial.println(static_cast<int>(tState));
+    Serial.println(static_cast<int>(battery.tState));
+
     
-    battery.vState = static_cast<int>(vState);
-    battery.tState = static_cast<int>(tState);
+    
+    battery.vState = battery.vState;
+    battery.tState = battery.tState;
     lastVoltageStateTime = currentMillis;
     }
 }
@@ -652,9 +544,7 @@ void Battery::handleBatteryControl() {
         @brief: Simplifies the logic for the battery control
         @return: VoltageState enum
 */
-Battery::VoltageState Battery::getVoltageState(     int voltagePrecent, 
-                                                    int ecoPrecentVoltage, 
-                                                    int boostPrecentVoltage) {
+VoltageState Battery::getVoltageState(int voltagePrecent) {
     if ( voltagePrecent < 10) {
      return LAST_RESORT;  
     } else if (voltagePrecent >= 10 && voltagePrecent < 20) {
@@ -663,13 +553,13 @@ Battery::VoltageState Battery::getVoltageState(     int voltagePrecent,
         return LOW_VOLTAGE_WARNING;                                                     // lets warn the user with leds and even lower P value
     } else if (voltagePrecent >= 30 && voltagePrecent < 50) {
         return PROTECTED;                                                               // lets protect the battery by lowering the P term
-    } else if (voltagePrecent >= 50 && voltagePrecent < ecoPrecentVoltage) {
-        return ECONOMY;                                                                 // Normal operation
-    } else if (voltagePrecent >= ecoPrecentVoltage && voltagePrecent < boostPrecentVoltage) {
+    } else if (voltagePrecent >= 50 && voltagePrecent < battery.ecoVoltPrecent) {
+        return ECONOMY;                                                                                     // Normal operation
+    } else if (voltagePrecent >= battery.ecoVoltPrecent && voltagePrecent < battery.boostVoltPrecent) {
         return BOOST;                                                                    // above economy voltage, in the wanted boost area
-    } else if (voltagePrecent >= boostPrecentVoltage && voltagePrecent > 99) {
+    } else if (voltagePrecent >= battery.boostVoltPrecent && voltagePrecent > 99) {
         return VBOOST_RESET;  // Add boost reset state
-    } else {                                                                             // lets reset the boost mode
+    } else {                                                                             
         return LAST_RESORT;  // Fallback state
     }
 }
@@ -678,16 +568,14 @@ Battery::VoltageState Battery::getVoltageState(     int voltagePrecent,
     State machine for temperature levels, to simplify the logic 
     for the battery control.
 */
-Battery::TempState Battery::getTempState(   float temperature, 
-                                            int ecoTemp, 
-                                            int boostTemp) {                                                
+TempState Battery::getTempState(float temperature) {                                                
         if (temperature < 0) {
             return SUBZERO;
-        } else if (temperature <= ecoTemp) {
+        } else if (temperature <= battery.heater.ecoTemp) {
             return ECO_TEMP;
-        } else if (temperature > ecoTemp && temperature <= boostTemp) {
+        } else if (temperature > battery.heater.ecoTemp && temperature <= battery.heater.boostTemp) {
             return BOOST_TEMP;
-        } else if (temperature > boostTemp && temperature < 40) {
+        } else if (temperature > battery.heater.boostTemp && temperature < 40) {
             return OVER_TEMP;
         } else if (temperature >= 40) {
             return TEMP_WARNING;
@@ -695,66 +583,120 @@ Battery::TempState Battery::getTempState(   float temperature,
             return DEFAULT_TEMP;
         }
 }
-/*
-    Battery Load and Save function calls, to store settings in 
-    the NVS memory. 
-
-        - lets ditch EEPROM
-        - lets use Preferences.h library for ESP32
-        - Maybe Future: Have some sort of logging in case of errors.
-        - maybe Future: Black Box kind of logging for backtracking faults 
-*/     
+ 
 
 void Battery::saveSettings(SettingsType type) {
-    preferences.begin("btry", false); // Open preferences with namespace "battery_settings" 
-
-    // Save settings based on the type
+    preferences.begin("btry", false); 
+    
     switch (type) {
         case SETUP:
-            preferences.putString("myname",      String(this->battery.myname));
-            preferences.putUChar("resistance",   constrain(this->battery.heater.resistance, 10, 255));
-            preferences.putUChar("chrgr",        constrain(this->battery.charger.current, 1, 5));     
-            preferences.putUChar("capct",        constrain(this->battery.capct, 1, 255));       
-            preferences.putFloat("temperature",  constrain(this->battery.temperature, float(-40), float(40)));
-            preferences.putUChar("currentVolt",  constrain(this->battery.voltageInPrecent, 1, 100));
-            preferences.putUChar("ecoVolt",      constrain(this->battery.ecoVoltPrecent, 1, 100));
-            preferences.putUChar("boostVolt",    constrain(this->battery.boostVoltPrecent, 1, 100));
-            preferences.putUChar("size",         constrain(this->battery.size, 10, 20));
-            preferences.putUChar("boostTemp",    constrain(this->battery.heater.boostTemp, 1, 40));
-            preferences.putUChar("ecoTemp",      constrain(this->battery.heater.ecoTemp, 1, 30));
-            preferences.putUChar("maxPower",     constrain(this->battery.heater.maxPower, 1, 255));
+            // Direct access to battery members
+            preferences.putString("myname", String(battery.name));
+            preferences.putUChar("size", constrain(battery.size, 6, 21));
+            preferences.putUChar("resistance",   constrain(battery.heater.resistance, 10, 255));
+            preferences.putUChar("chrgr",        constrain(battery.chrgr.current, 1, 15));     
+            preferences.putUChar("capct",        constrain(battery.capct, 5, 255));       
+            preferences.putFloat("temperature",  constrain(battery.temperature, float(-40), float(40)));
+            preferences.putUChar("currentVolt",  constrain(battery.voltageInPrecent, 1, 100));
+            preferences.putUChar("ecoVolt",      constrain(battery.ecoVoltPrecent, 1, 100));
+            preferences.putUChar("boostVolt",    constrain(battery.boostVoltPrecent, 1, 100));
+            preferences.putUChar("boostTemp",    constrain(battery.heater.boostTemp, 1, 40));
+            preferences.putUChar("ecoTemp",      constrain(battery.heater.ecoTemp, 1, 30));
+            preferences.putUChar("maxPower",     constrain(battery.heater.maxPower, 1, 255));
+            preferences.putBool("tboost",        constrain(battery.tempBoost, 0, 1));
+            preferences.putBool("vboost",        constrain(battery.voltBoost, 0, 1));
 
-            // Quickpanel settings
-            preferences.putBool("tboost",        constrain(this->battery.tempBoost, 0, 1));
-            preferences.putBool("vboost",        constrain(this->battery.voltBoost, 0, 1));
-
+#ifdef DEBUG
+            // Print saved settings for debugging
+            Serial.println("Saved Settings (SETUP):");
+            Serial.print("Name: "); Serial.println(battery.name);
+            Serial.print("Size: "); Serial.println(battery.size);
+            Serial.print("Resistance: "); Serial.println(battery.heater.resistance);
+            Serial.print("Charger Current: "); Serial.println(battery.chrgr.current);
+            Serial.print("Capacity: "); Serial.println(battery.capct);
+            Serial.print("Temperature: "); Serial.println(battery.temperature);
+            Serial.print("Current Voltage: "); Serial.println(battery.voltageInPrecent);
+            Serial.print("Eco Voltage Percent: "); Serial.println(battery.ecoVoltPrecent);
+            Serial.print("Boost Voltage Percent: "); Serial.println(battery.boostVoltPrecent);
+            Serial.print("Boost Temperature: "); Serial.println(battery.heater.boostTemp);
+            Serial.print("Eco Temperature: "); Serial.println(battery.heater.ecoTemp);
+            Serial.print("Max Power: "); Serial.println(battery.heater.maxPower);
+            Serial.print("Temperature Boost: "); Serial.println(battery.tempBoost);
+            Serial.print("Voltage Boost: "); Serial.println(battery.voltBoost);
+#endif
             break;        
         case WIFI:
-            preferences.putString("wssid", this->battery.wlan.ssid);
-            preferences.putString("wpass", this->battery.wlan.pass);
+            preferences.putString("wssid", battery.wlan.ssid);  // Save the actual stored SSID
+            preferences.putString("wpass", battery.wlan.pass);  // Save the actual stored password
+
+#ifdef DEBUG
+            // Print saved WiFi settings for debugging
+            Serial.println("Saved Settings (WIFI):");
+            Serial.print("SSID: "); Serial.println(battery.wlan.ssid);
+            Serial.print("Password: "); Serial.println(battery.wlan.pass);
+#endif
             break;
+
         case HTTP:
-            preferences.putBool("httpen", this->battery.http.enable);
-            preferences.putString("httpusr", this->battery.http.username);
-            preferences.putString("httppass", this->battery.http.password);
+            preferences.putBool("httpen", battery.http.enable);
+            preferences.putString("httpusr", battery.http.username);
+            preferences.putString("httppass", battery.http.password);
+
+#ifdef DEBUG
+            // Print saved HTTP settings for debugging
+            Serial.println("Saved Settings (HTTP):");
+            Serial.print("HTTP Enabled: "); Serial.println(battery.http.enable);
+            Serial.print("Username: "); Serial.println(battery.http.username);
+            Serial.print("Password: "); Serial.println(battery.http.password);
+#endif
             break;
+
         case MQTT:
-            preferences.putBool("mqtten", this->battery.mqtt.enable);
-            preferences.putString("mqttip", this->battery.mqtt.server);
-            preferences.putUInt("mqttport", this->battery.mqtt.port);
-            preferences.putString("mqttusr", this->battery.mqtt.username);
-            preferences.putString("mqttpass", this->battery.mqtt.password);
+            preferences.putBool("mqtten", battery.mqtt.enable);
+            preferences.putString("mqttip", battery.mqtt.server);
+            preferences.putUInt("mqttport", battery.mqtt.port);
+            preferences.putString("mqttusr", battery.mqtt.username);
+            preferences.putString("mqttpass", battery.mqtt.password);
+
+#ifdef DEBUG
+            // Print saved MQTT settings for debugging
+            Serial.println("Saved Settings (MQTT):");
+            Serial.print("MQTT Enabled: "); Serial.println(battery.mqtt.enable);
+            Serial.print("Server: "); Serial.println(battery.mqtt.server);
+            Serial.print("Port: "); Serial.println(battery.mqtt.port);
+            Serial.print("Username: "); Serial.println(battery.mqtt.username);
+            Serial.print("Password: "); Serial.println(battery.mqtt.password);
+#endif
             break;
+
         case TELEGRAM:
-            preferences.putBool("tgen", this->battery.telegram.enable);
-            preferences.putString("tgtoken", this->battery.telegram.token);
-            preferences.putInt("tgusr", this->battery.telegram.chatId);
+            preferences.putBool("tgen", battery.telegram.enable);
+            preferences.putString("tgtoken", battery.telegram.token); // Load Telegram token
+            preferences.putInt("tgusr", battery.telegram.chatId); // Load Telegram chat ID
+
+#ifdef DEBUG
+            // Print saved Telegram settings for debugging
+            Serial.println("Saved Settings (TELEGRAM):");
+            Serial.print("Telegram Enabled: "); Serial.println(battery.telegram.enable);
+            Serial.print("Token: "); Serial.println(battery.telegram.token);
+            Serial.print("Chat ID: "); Serial.println(battery.telegram.chatId);
+#endif
             break;
+
         case PID:
-            preferences.putFloat("pidP", this->battery.heater.pidP);
-            preferences.putFloat("pidI", this->battery.heater.pidI);
-            preferences.putFloat("pidD", this->battery.heater.pidD);
+            preferences.putFloat("pidP", battery.heater.pidP);
+            preferences.putFloat("pidI", battery.heater.pidI);
+            preferences.putFloat("pidD", battery.heater.pidD);
+
+#ifdef DEBUG
+            // Print saved PID settings for debugging
+            Serial.println("Saved Settings (PID):");
+            Serial.print("PID P: "); Serial.println(battery.heater.pidP);
+            Serial.print("PID I: "); Serial.println(battery.heater.pidI);
+            Serial.print("PID D: "); Serial.println(battery.heater.pidD);
+#endif
             break;
+
         case ALL: // Save all settings
             // Call each case to save all settings
             saveSettings(SETUP);
@@ -764,64 +706,124 @@ void Battery::saveSettings(SettingsType type) {
             saveSettings(TELEGRAM);
             saveSettings(PID);
 
+#ifdef DEBUG
+            Serial.println("Saved All Settings.");
+#endif
             break;
     }
-
-    preferences.end(); // Close preferences, commit changes
+    preferences.end();
 }
 
-void Battery::loadSettings(SettingsType type = ALL) {
-    preferences.begin("btry", true); // Open preferences with namespace "battery_settings" in read-only mode
-
-    // Load settings based on the type
+void Battery::loadSettings(SettingsType type) {
+    preferences.begin("btry", true);
+    
     switch (type) {
         case SETUP:
-            this->battery.myname = preferences.getString("myname", "Helmi");
-            this->battery.size = constrain(preferences.getUChar("size", 10), 7, 20);
-            this->battery.temperature = preferences.getFloat("temperature");
-            this->battery.voltageInPrecent = constrain(preferences.getUChar("currentVolt", 1), 5, 100);
-            this->battery.heater.resistance = constrain(preferences.getUChar("resistance", 1), 2, 255);
-            this->battery.ecoVoltPrecent = constrain(preferences.getUChar("ecoVolt", 1), 5, 255);
-            this->battery.boostVoltPrecent = constrain(preferences.getUChar("boostVolt", 1), 5, 255);
-            this->battery.heater.boostTemp = constrain(preferences.getUChar("boostTemp", 1), 5, 40);
-            this->battery.heater.ecoTemp = constrain(preferences.getUChar("ecoTemp", 1), 5, 30);
-            this->battery.capct = constrain(preferences.getUChar("capct", 1), 1, 255);
-            this->battery.charger.current = constrain(preferences.getUChar("chrgr", 0), 1, 5);
-            this->battery.heater.maxPower = constrain(preferences.getUChar("maxPower", 1), 2, 255);
-            this->battery.tempBoost = preferences.getBool("tboost");
-            this->battery.voltBoost = preferences.getBool("vboost");
+            // Direct access to battery members
+            battery.name = String(preferences.getString("myname", "Helmi"));
+            battery.size = preferences.getUChar("size");
+            battery.temperature = preferences.getFloat("temperature");
+            battery.voltageInPrecent = constrain(preferences.getUChar("currentVolt", 1), 5, 100);
+            battery.heater.resistance = constrain(preferences.getUChar("resistance", 1), 2, 255);
+            battery.ecoVoltPrecent = constrain(preferences.getUChar("ecoVolt", 1), 5, 255);
+            battery.boostVoltPrecent = constrain(preferences.getUChar("boostVolt", 1), 5, 255);
+            battery.heater.boostTemp = constrain(preferences.getUChar("boostTemp", 1), 5, 40);
+            battery.heater.ecoTemp = constrain(preferences.getUChar("ecoTemp", 1), 5, 30);
+            battery.capct = constrain(preferences.getUChar("capct", 1), 1, 255);
+            battery.chrgr.current = constrain(preferences.getUChar("chrgr", 0), 1, 5);
+            battery.heater.maxPower = constrain(preferences.getUChar("maxPower", 1), 2, 255);
+            battery.tempBoost = preferences.getBool("tboost");
+            battery.voltBoost = preferences.getBool("vboost");
+
+#ifdef DEBUG
+            // Print loaded settings for debugging
+            Serial.println("Loaded Settings:");
+            Serial.print("Name: "); Serial.println(battery.name);
+            Serial.print("Size: "); Serial.println(battery.size);
+            Serial.print("Temperature: "); Serial.println(battery.temperature);
+            Serial.print("Voltage in Percent: "); Serial.println(battery.voltageInPrecent);
+            Serial.print("Heater Resistance: "); Serial.println(battery.heater.resistance);
+            Serial.print("Eco Voltage Percent: "); Serial.println(battery.ecoVoltPrecent);
+            Serial.print("Boost Voltage Percent: "); Serial.println(battery.boostVoltPrecent);
+            Serial.print("Heater Boost Temp: "); Serial.println(battery.heater.boostTemp);
+            Serial.print("Heater Eco Temp: "); Serial.println(battery.heater.ecoTemp);
+            Serial.print("Capacity: "); Serial.println(battery.capct);
+            Serial.print("Charger Current: "); Serial.println(battery.chrgr.current);
+            Serial.print("Heater Max Power: "); Serial.println(battery.heater.maxPower);
+            Serial.print("Temperature Boost: "); Serial.println(battery.tempBoost);
+            Serial.print("Voltage Boost: "); Serial.println(battery.voltBoost);
+#endif
             break;
 
         case WIFI:
-            this->battery.wlan.ssid = preferences.getString("wssid");
-            this->battery.wlan.pass = preferences.getString("wpass");
+            battery.wlan.ssid = String(preferences.getString("wssid"));
+            battery.wlan.pass = String(preferences.getString("wpass"));
+
+#ifdef DEBUG
+            // Print loaded WiFi settings for debugging
+            Serial.println("Loaded WiFi Settings:");
+            Serial.print("SSID: "); Serial.println(battery.wlan.ssid);
+            Serial.print("Password: "); Serial.println(battery.wlan.pass);
+#endif
             break;
 
         case HTTP:
-            this->battery.http.enable = preferences.getBool("httpen");
-            this->battery.http.username = preferences.getString("httpusr");
-            this->battery.http.password = preferences.getString("httppass");
+            battery.http.enable = preferences.getBool("httpen");
+            battery.http.username = String(preferences.getString("httpusr"));
+            battery.http.password = String(preferences.getString("httppass"));
+
+#ifdef DEBUG
+            // Print loaded HTTP settings for debugging
+            Serial.println("Loaded HTTP Settings:");
+            Serial.print("HTTP Enabled: "); Serial.println(battery.http.enable);
+            Serial.print("Username: "); Serial.println(battery.http.username);
+            Serial.print("Password: "); Serial.println(battery.http.password);
+#endif
             break;
 
         case MQTT:
-            this->battery.mqtt.enable = preferences.getBool("mqtten");
-            this->battery.mqtt.username = preferences.getString("mqttusr");
-            this->battery.mqtt.password = preferences.getString("mqttpass");
-            this->battery.mqtt.server = preferences.getString("mqttip");
-            // this->battery.mqtt.port = preferences.getInt("mqttport");
+            battery.mqtt.enable = preferences.getBool("mqtten");
+            battery.mqtt.username = String(preferences.getString("mqttusr"));
+            battery.mqtt.password = String(preferences.getString("mqttpass"));
+            battery.mqtt.server = String(preferences.getString("mqttip"));
+            // battery.mqtt.port = preferences.getInt("mqttport");
+
+#ifdef DEBUG
+            // Print loaded MQTT settings for debugging
+            Serial.println("Loaded MQTT Settings:");
+            Serial.print("MQTT Enabled: "); Serial.println(battery.mqtt.enable);
+            Serial.print("Username: "); Serial.println(battery.mqtt.username);
+            Serial.print("Password: "); Serial.println(battery.mqtt.password);
+            Serial.print("Server: "); Serial.println(battery.mqtt.server);
+#endif
             break;
 
         case TELEGRAM:
-            this->battery.telegram.enable = preferences.getBool("tgen");
-            this->battery.telegram.token = preferences.getString("tgtoken"); // Load Telegram token
-            this->battery.telegram.chatId = preferences.getInt("tgusr"); // Load Telegram chat ID
-            // Add other telegram settings as needed
+            battery.telegram.enable = preferences.getBool("tgen");
+            battery.telegram.token = preferences.getString("tgtoken");
+            battery.telegram.chatId = preferences.getInt("tgusr");
+
+#ifdef DEBUG
+            // Print loaded Telegram settings for debugging
+            Serial.println("Loaded Telegram Settings:");
+            Serial.print("Telegram Enabled: "); Serial.println(battery.telegram.enable);
+            Serial.print("Token: "); Serial.println(battery.telegram.token);
+            Serial.print("Chat ID: "); Serial.println(battery.telegram.chatId);
+#endif
             break;
 
         case PID:
-            this->battery.heater.pidP = preferences.getFloat("pidP");
-            this->battery.heater.pidI = preferences.getFloat("pidI");
-            this->battery.heater.pidD = preferences.getFloat("pidD");
+            battery.heater.pidP = preferences.getFloat("pidP");
+            battery.heater.pidI = preferences.getFloat("pidI");
+            battery.heater.pidD = preferences.getFloat("pidD");
+
+#ifdef DEBUG
+            // Print loaded PID settings for debugging
+            Serial.println("Loaded PID Settings:");
+            Serial.print("PID P: "); Serial.println(battery.heater.pidP);
+            Serial.print("PID I: "); Serial.println(battery.heater.pidI);
+            Serial.print("PID D: "); Serial.println(battery.heater.pidD);
+#endif
             break;
 
         case ALL:
@@ -834,8 +836,7 @@ void Battery::loadSettings(SettingsType type = ALL) {
             loadSettings(PID);
             break;
     }
-
-    preferences.end(); // Close preferences
+    preferences.end();
 }
 
 /*
@@ -844,95 +845,81 @@ void Battery::loadSettings(SettingsType type = ALL) {
             to compare reading in the previous reading. Like Moving avarage
             but in a array. And this would lead into actionable data.
 */
-void Battery::readVoltage(uint8_t intervalSeconds) {
-    this->currentMillis = millis();
+void Battery::readVoltage(uint32_t intervalSeconds) {
+    // Check if enough time has passed since the last reading
+    if (millis() - battery.adc.time >= intervalSeconds) {
+        battery.adc.time = millis(); // Update the time in the adc struct
 
-    if (millis() - voltageMillis >= (intervalSeconds * uint16_t(1000))) {
-        this->voltageMillis = millis();
+        if (!battery.chrgr.enable) {
+            gpio_set_direction(GPIO_NUM_25, GPIO_MODE_OUTPUT);
+            gpio_set_level(GPIO_NUM_25, HIGH);
+            delay(6);
+        }
 
-        // #ifndef VERSION_1  // different hardware setup
-        // if(!battery.chargerState) {
-        // gpio_set_direction(GPIO_NUM_25, GPIO_MODE_OUTPUT);
-        // gpio_set_level(GPIO_NUM_25, HIGH); 
-        // delay(5); }
-        // #else
-        // digitalWrite(CHARGER_PIN, HIGH);
-        // delay(5);
-        // #endif
-        
-        u_int32_t voltVal = adc1_get_raw(ADC_CHANNEL);
-        u_int32_t calibratedVoltage = esp_adc_cal_raw_to_voltage(voltVal, &characteristics) * 30.81;
+        // Read the voltage from the ADC
+        battery.adc.raw = adc1_get_raw(ADC_CHANNEL); // Store raw ADC value in the adc struct
 
-        /*
-        #ifndef VERSION_1
-        if(!battery.chargerState) {
-        gpio_set_direction(GPIO_NUM_25, GPIO_MODE_OUTPUT);
-        gpio_set_level(GPIO_NUM_25, LOW);   }
-        #else
-        digitalWrite(CHARGER_PIN, LOW);
-        #endif
-        */
-    
-        if (firstRun) {
-            // Initialize the moving average array -> otherwise slow voltage increase takes time.
-            for (int i = 0; i < MOVING_AVG_SIZE; i++) {
-                MOVAreadings[i] = calibratedVoltage;
+        if (!battery.chrgr.enable) {
+            gpio_set_direction(GPIO_NUM_25, GPIO_MODE_OUTPUT);
+            gpio_set_level(GPIO_NUM_25, LOW);
+        }
+
+        if (battery.firstRun) {
+            for (int i = 0; i < battery.adc.mAvg; i++) {
+                battery.adc.readings[i] = battery.adc.raw; // Use the first reading
             }
+            battery.firstRun = false; // Set firstRun to false after initialization
         }
 
         // Update the moving average array
-        MOVAreadings[MOVAIndex] = calibratedVoltage;
-        MOVAIndex = (MOVAIndex + 1) % MOVING_AVG_SIZE;
+        battery.adc.readings[battery.adc.index] = battery.adc.raw; // Store the latest raw reading
+        battery.adc.index = (battery.adc.index + 1) % battery.adc.mAvg; // Increment index and wrap around
 
         // Calculate the moving average
-        MOVASum = 0;
-        for (int i = 0; i < MOVING_AVG_SIZE; i++) {
-            MOVASum += MOVAreadings[i];
+        battery.adc.sum = 0; // Initialize sum to zero
+        for (int i = 0; i < battery.adc.mAvg; i++) {
+            battery.adc.sum += battery.adc.readings[i]; // Sum all readings
+            // Serial.print("Sum: ");
+            //Serial.println(battery.adc.sum);
         }
-        u_int32_t movingAverage = MOVASum / MOVING_AVG_SIZE;
+        battery.adc.avg = battery.adc.sum / battery.adc.mAvg; // Calculate average
 
-        // Calculate variance percentage
-        u_int32_t varianceSum = 0;
-        for (int i = 0; i < MOVING_AVG_SIZE; i++) {
-            varianceSum += abs((int32_t)MOVAreadings[i] - (int32_t)movingAverage);
-        }
-        // Serial.print("VarianceSum: ");
-        // Serial.println(varianceSum);
+        // Print the average for debugging
+        // Serial.print("Avg: ");
+        //Serial.println(battery.adc.avg);
 
-        u_int32_t variance = (varianceSum * 100) / (MOVING_AVG_SIZE * movingAverage);
+        battery.milliVoltage = esp_adc_cal_raw_to_voltage(battery.adc.avg, &characteristics) * float(30.81);
+        // Serial.print("MilliVoltage: ");
+        // Serial.println(battery.milliVoltage);
 
-        // Store variance in the secondary array
-        varianceReadings[MOVAIndex] = variance;
-
-        // Serial.print("movingAverage: ");
-        // Serial.println(movingAverage);
-
-
+        // Serial.print(esp_adc_cal_raw_to_voltage(battery.adc.avg, &characteristics));
+        
         // Check if the moving average is within the valid range
-        if (movingAverage > 10000 && movingAverage < 100000) {
-            // Update battery size approximation if the new series is larger
-            int newSeries = determineBatterySeries(movingAverage);
-            if (this->battery.sizeApprx < newSeries) {
-                this->battery.sizeApprx = newSeries;
-                Serial.print(" BattApproxSize: ");
-                Serial.println(this->battery.sizeApprx);
+        if (battery.milliVoltage > 9000 && battery.milliVoltage < 100000) {
+ 
+            int newSeries = determineBatterySeries(battery.milliVoltage);
+            if (battery.sizeApprx < newSeries) {
+                battery.sizeApprx = newSeries;
+                // Serial.print(" BattApproxSize: ");
+                //Serial.println(battery.sizeApprx);
             }
 
             // Update voltage and accurate voltage
-            this->battery.milliVoltage = movingAverage;
+           //  battery.milliVoltage = battery.adc.avg; // Store the average as the calibrated voltage
 
-            Serial.print(" Voltage: ");
-            Serial.println(this->battery.milliVoltage);
-            
+            // Serial.print(" Voltage: ");
+            // Serial.println(battery.milliVoltage);
+
             // Update battery voltage in percentage
-            this->battery.voltageInPrecent = getVoltageInPercentage(movingAverage);
+            battery.voltageInPrecent = getVoltageInPercentage(battery.milliVoltage);
         } else {
-            this->battery.milliVoltage = 0; // Set the accurate voltage to 0 in case of reading error
-            this->battery.voltageInPrecent = 0; // Set the voltage in percentage to 0 in case of reading error
+            battery.milliVoltage = 1; // Set the accurate voltage to 1 in case of reading error
+            battery.voltageInPrecent = 1; // Set the voltage in percentage to 1 in case of reading error
             Serial.println(" Voltage reading error ");
             Serial.print(" Voltage: ");
-            Serial.println(movingAverage);
+            Serial.println(battery.adc.avg);
         }
+        
     }
 }
 /*
@@ -946,13 +933,13 @@ float Battery::btryToVoltage(int precent) {
 
     if (precent > 0 && precent < 101) {
         float milliVolts = 0.0f;
-        milliVolts = (this->battery.size * 3000);
-        milliVolts += (this->battery.size * (1200 * (int)precent ) / 100);
+        milliVolts = (battery.size * 3000);
+        milliVolts += (battery.size * (1200 * (int)precent ) / 100);
         return milliVolts / 1000;
     }
     else {
 
-    float volttis = ((this->battery.size * 3) + (this->battery.size * (float)1.2 * (precent / 100)));
+    float volttis = ((battery.size * 3) + (battery.size * (float)1.2 * (precent / 100)));
     Serial.print("btryTolVoltage-Fail:  ");
     Serial.println(volttis);
     return -1;
@@ -976,8 +963,8 @@ int Battery::getVoltageInPercentage(uint32_t milliVoltage) {
         return 0;  // Above maximum voltage, 100% usable area
         Serial.println("Above maximum voltage");
     } else {
-        uint32_t voltageRange = (maxVoltage - minVoltage) * this->battery.size;
-        uint32_t voltageDifference = milliVoltage - ( minVoltage * this->battery.size) ;
+        uint32_t voltageRange = (maxVoltage - minVoltage) * battery.size;
+        uint32_t voltageDifference = milliVoltage - ( minVoltage * battery.size) ;
         float result = ((float)voltageDifference / (float)voltageRange) * 100 ;  // Calculate percentage of usable area
         // Serial.print("Voltage left:  ");
         // Serial.println(voltageDifference);
@@ -994,7 +981,7 @@ int Battery::getVoltageInPercentage(uint32_t milliVoltage) {
 int Battery::getBatteryDODprecent() {
     // Serial.print("Result:  ");
     // Serial.println(battery.voltageInPrecent);
-    return this->battery.voltageInPrecent;
+    return battery.voltageInPrecent;
 }
 /*
 
@@ -1004,8 +991,8 @@ int Battery::getBatteryDODprecent() {
     ECONOMY CHARGING
 */
 bool Battery::setEcoPrecentVoltage(int value) {
-    if(value > 49 && value < 101 && value < this->battery.boostVoltPrecent) {
-        this->battery.ecoVoltPrecent = value;
+    if(value > 49 && value < 101 && value < battery.boostVoltPrecent) {
+        battery.ecoVoltPrecent = value;
         return true;
     }
     else return false;
@@ -1013,7 +1000,7 @@ bool Battery::setEcoPrecentVoltage(int value) {
 
 // @brief Get the battery economy voltage percentage endpoint
 uint8_t Battery::getEcoPrecentVoltage() {
-    return this->battery.ecoVoltPrecent;
+    return battery.ecoVoltPrecent;
 }
 /*
 
@@ -1025,8 +1012,8 @@ uint8_t Battery::getEcoPrecentVoltage() {
         Have some filtering, maybe some error handling. Lets worry about that later on.
 */
 bool Battery::setBoostPrecentVoltage(int boostPrecentVoltage) {
-        if(boostPrecentVoltage > this->battery.ecoVoltPrecent && boostPrecentVoltage < 101) {
-            this->battery.boostVoltPrecent = boostPrecentVoltage;
+        if(boostPrecentVoltage > battery.ecoVoltPrecent && boostPrecentVoltage < 101) {
+            battery.boostVoltPrecent = boostPrecentVoltage;
             return true;
         }
         else return false;        
@@ -1034,7 +1021,7 @@ bool Battery::setBoostPrecentVoltage(int boostPrecentVoltage) {
 
 // @brief Get the battery boost voltage percentage endpoint
 uint8_t Battery::getBoostPrecentVoltage() {
-    return this->battery.boostVoltPrecent;
+    return battery.boostVoltPrecent;
 }
 /*
 
@@ -1045,11 +1032,9 @@ uint8_t Battery::getBoostPrecentVoltage() {
     This is to compare the reading, if it differs from the previous reading, we can have a failsafe.
 */
 float Battery::getTemperature() {
-    float tempReturn = 0.0f;
-    tempReturn = this->battery.temperature;
 
-    if(tempReturn < float(80) && tempReturn > float(-50)) {
-        return tempReturn;
+    if(battery.temperature < float(80) && battery.temperature > float(-50)) {
+        return battery.temperature;
     }
     else return 255;
 }   
@@ -1062,17 +1047,19 @@ float Battery::getTemperature() {
         For charging, economy and boost mode definitions.
         In the future this cuold maybe have automated, but thats too much work for now. 
 */
-bool Battery::setNominalString(int size) {
+bool Battery::setNominalString(uint8_t size) {
     if(size > 6 && size < 22)
         {
-            this->battery.size = size;
+            battery.size = size;
+            Serial.print("nominalSize");
+            Serial.println(size);
             return true;
         }
     else return false;
 }
 
 uint8_t Battery::getNominalString() {
-    return this->battery.size;
+    return battery.size;
 }
 /*
 
@@ -1081,12 +1068,12 @@ uint8_t Battery::getNominalString() {
         - ESPUI interface for the user to set the battery temperature settings.
 */
 uint8_t Battery::getEcoTemp() {
-    return this->battery.heater.ecoTemp;
+    return battery.heater.ecoTemp;
 }
 
 bool Battery::setEcoTemp(int ecoTemp) {
-    if(ecoTemp > 0 && ecoTemp < 31 && ecoTemp < this->battery.heater.boostTemp) {
-        this->battery.heater.ecoTemp = ecoTemp;
+    if(ecoTemp > 0 && ecoTemp < 31 && ecoTemp < battery.heater.boostTemp) {
+        battery.heater.ecoTemp = ecoTemp;
         return true;
     }
     else return false;
@@ -1098,12 +1085,12 @@ bool Battery::setEcoTemp(int ecoTemp) {
         - ESPUI interface for the user to set the battery temperature settings.
 */
 uint8_t Battery::getBoostTemp() {
-    return this->battery.heater.boostTemp;
+    return battery.heater.boostTemp;
 }
 
 bool Battery::setBoostTemp(int boostTemp) {
-    if(boostTemp > 9 && boostTemp < 41 && boostTemp > this->battery.heater.ecoTemp) {
-        this->battery.heater.boostTemp = boostTemp;
+    if(boostTemp > 9 && boostTemp < 41 && boostTemp > battery.heater.ecoTemp) {
+        battery.heater.boostTemp = boostTemp;
         return true;
     }
     else return false;
@@ -1121,7 +1108,7 @@ bool Battery::setBoostTemp(int boostTemp) {
 bool Battery::activateTemperatureBoost(bool tempBoost) {
     if(tempBoost) {
             preferences.begin("btry", false);
-            this->battery.tempBoost = true;
+            battery.tempBoost = true;
             preferences.putBool("tboost", true);
             preferences.end(); // Close preferences
             return true;
@@ -1129,7 +1116,7 @@ bool Battery::activateTemperatureBoost(bool tempBoost) {
     else if(!tempBoost ) {
         if(preferences.begin("btry", false))
         {
-            this->battery.tempBoost = false;
+            battery.tempBoost = false;
             preferences.putBool("tboost", false);
             preferences.end(); // Close preferences
         }
@@ -1140,7 +1127,7 @@ else return false;
 }
 
 bool Battery::getActivateTemperatureBoost() {
-    if (this->battery.tempBoost)
+    if (battery.tempBoost)
         return true;
     else
         return false;
@@ -1148,14 +1135,14 @@ bool Battery::getActivateTemperatureBoost() {
 
 bool Battery::activateVoltageBoost(bool voltBoost) {
     if(voltBoost) {
-        this->battery.voltBoost = true;
+        battery.voltBoost = true;
         preferences.begin("btry", false);           // Open preferences with namespace "battery_settings"
         preferences.putBool("vboost", true);
         preferences.end();                          // Close preferences
         return true;
     }
     else if (!voltBoost) {
-        this->battery.voltBoost = false;
+        battery.voltBoost = false;
         preferences.begin("btry", false);           // Open preferences with namespace "battery_settings"
         preferences.putBool("vboost", false);
         preferences.end();                          // Close preferences
@@ -1165,7 +1152,7 @@ bool Battery::activateVoltageBoost(bool voltBoost) {
 }
 
 bool Battery::getActivateVoltageBoost() {
-    if (this->battery.voltBoost)
+    if (battery.voltBoost)
         return true;
     else
         return false;
@@ -1173,10 +1160,10 @@ bool Battery::getActivateVoltageBoost() {
 
 float Battery::calculateChargeTime(int initialPercentage, int targetPercentage) {
     // Calculate the charge needed in Ah
-    float chargeNeeded = this->battery.capct * ((targetPercentage - initialPercentage) / (float)100.0);
+    float chargeNeeded = battery.capct * ((targetPercentage - initialPercentage) / (float)100.0);
     // Serial.println(chargeNeeded);
     // Calculate the time required in minutes
-    float timeRequired = (chargeNeeded / getCharger());
+    float timeRequired = (chargeNeeded / battery.chrgr.current);
     // Serial.print("timeRequired: ");
     // Serial.println(timeRequired);
     return timeRequired;
@@ -1185,7 +1172,7 @@ float Battery::calculateChargeTime(int initialPercentage, int targetPercentage) 
     // Setter function to set charger current and battery capacity
 bool Battery::setCharger(int chargerCurrent) {
     if(chargerCurrent > 0 && chargerCurrent < 11) {
-        this->battery.charger.current = chargerCurrent;
+        battery.chrgr.current = chargerCurrent;
         return true;
     }
     else return false;
@@ -1193,13 +1180,13 @@ bool Battery::setCharger(int chargerCurrent) {
 
 // Getter for charger current
 int Battery::getCharger() {
-    return this->battery.charger.current;
+    return battery.chrgr.current;
 }
 
 // Setter for battery capacity
 bool Battery::setCapacity(int capacity) {
     if (capacity > 0 && capacity < 250) {
-        this->battery.capct = capacity;
+        battery.capct = capacity;
         return true;
     } else {
         return false;
@@ -1208,7 +1195,7 @@ bool Battery::setCapacity(int capacity) {
 
 // Getter for battery capacity
 int Battery::getCapacity()  {
-    return this->battery.capct;
+    return battery.capct;
 }
 
 /*
@@ -1242,12 +1229,12 @@ uint32_t Battery::determineBatterySeries(uint32_t measuredVoltage_mV) {
 
 float Battery::getCurrentVoltage() {
     float volts = 0.0f;
-    volts = this->battery.milliVoltage / (float)(1000.0F);  // old, no need?
+    volts = battery.milliVoltage / (float)(1000.0F);  // old, no need?
     return volts;
 }
 
 int Battery::getBatteryApprxSize() {
-    return this->battery.sizeApprx;
+    return battery.sizeApprx;
 }
 
 void Battery::charger(bool chargerState) {
@@ -1255,36 +1242,54 @@ void Battery::charger(bool chargerState) {
         gpio_set_direction(GPIO_NUM_25, GPIO_MODE_OUTPUT);
         gpio_set_level(GPIO_NUM_25, HIGH);
         // Serial.print (" Chrgr: ON ");
-        this->battery.chargerState = true;
+        battery.chrgr.enable = true;
 
     } else {
 
         gpio_set_direction(GPIO_NUM_25, GPIO_MODE_OUTPUT);
         gpio_set_level(GPIO_NUM_25, LOW);
         /// Serial.print(" Chrgr: OFF ");
-        this->battery.chargerState = false;
+        battery.chrgr.enable = false;
     }
 }
 
-bool Battery::saveHostname(String hostname) {
-    preferences.begin("btry", false);
-    preferences.putString("myname", hostname);
-    preferences.end();
-    this->battery.myname = String(hostname);
-    return true;
+bool Battery::isValidHostname(const String& hostname) {
+    // Check length
+    if (hostname.length() > 12) {
+        return false; // Too long
+    }
+
+    // Check for valid characters
+    for (size_t i = 0; i < hostname.length(); i++) {
+        char c = hostname[i];
+        // Use std::isalnum instead of isAlphanumeric
+        if (!std::isalnum(c) && c != '-' && c != '_' && c != '.' && c != '~') {
+            return false; // Invalid character found
+        }
+    }
+    return true; // Valid hostname
 }
 
-bool Battery::loadHostname() {
+bool Battery::setHostname(String hostname) {
+
+    // if(isValidHostname(hostname)) {
+        battery.name = hostname;
+        return true;
+    //}
+    //else return false;
+}
+
+bool Battery::getHostname() {
     preferences.begin("btry", true);
     String hostname = preferences.getString("myname");
     preferences.end();
-    this->battery.myname = hostname;
+    battery.name = hostname;
     return true;
 }
 
 bool Battery::setResistance(uint8_t resistance) {
     if (resistance > 10 && resistance < 255) {
-        this->battery.heater.resistance = resistance;
+        battery.heater.resistance = resistance;
         return true;
     } else {
         return false;
@@ -1292,41 +1297,41 @@ bool Battery::setResistance(uint8_t resistance) {
 }
 
 int Battery::getResistance() {
-    return this->battery.heater.resistance;
+    return battery.heater.resistance;
 }
 
 void Battery::adjustHeaterSettings() {
     // const float maxPower = 30.0; // Maximum power in watts
 
     // Calculate the maximum allowable power based on the resistance and voltage
-    float power = (this->battery.size * float(3.7) * this->battery.size * float(3.7)  ) / this->battery.heater.resistance;
+    float power = (battery.size * float(3.7) * battery.size * float(3.7)  ) / battery.heater.resistance;
 
     // Calculate the duty cycle needed to cap the power at maxPower
-    float dutyCycle = this->battery.heater.maxPower / power;
+    float dutyCycle = battery.heater.maxPower / power;
 
     if (dutyCycle > 1) {
         dutyCycle = 1;
     }
 
     // Calculate the output limits for QuickPID
-    this->battery.heater.maxPower  = (dutyCycle * 255);
+    battery.heater.maxPower  = (dutyCycle * 255);
 
     // Ensure the output limit does not exceed the maximum allowable current
     // Ensure the output limit does not exceed the maximum allowable current
-    if (this->battery.heater.maxPower > 255) {
-        this->battery.heater.maxPower = 254;
+    if (battery.heater.maxPower > 255) {
+        battery.heater.maxPower = 254;
     }
-    if (this->battery.heater.maxPower < 20) {
-        this->battery.heater.maxPower = 20;
+    if (battery.heater.maxPower < 20) {
+        battery.heater.maxPower = 20;
     }
 
     // Adjust the QuickPID output limits
-    heaterPID.SetOutputLimits(float(0), float(this->battery.heater.maxPower));
+    heaterPID.SetOutputLimits(float(0), float(battery.heater.maxPower));
 }
 
 bool Battery::setPidP(float p) {
     if (p >= 0 && p < 250) {
-        this->battery.heater.pidP = p;
+        battery.heater.pidP = p;
 
         // preferences.begin("btry", false);
         // preferences.putFloat("pidP", constrain(p, 0, 250));
@@ -1340,13 +1345,14 @@ bool Battery::setPidP(float p) {
 }
 
 int Battery::getPidP() {
-    return this->battery.heater.pidP;
+    return battery.heater.pidP;
 }
 
 bool Battery::getChargerStatus() {
-    return this->battery.chargerState;
+    return battery.chrgr.enable;
 }
 
+/*
 void Battery::setupTelegram(const char* token, const char* chatId) {
         // strncpy(battery.telegram.token, token, sizeof(battery.telegram.token)-1);
         // strncpy(battery.telegram.chatId, chatId, sizeof(battery.telegram.chatId)-1);  
@@ -1355,27 +1361,28 @@ void Battery::setupTelegram(const char* token, const char* chatId) {
         telegram.begin();
         // battery.telegram.enable = true;
     }
+    */
 
 void Battery::publishBatteryData() {
-        String baseTopic = "battery/" + String(battery.myname) + "/";
-        mqtt.publish((baseTopic + "size").c_str(),                 String(this->battery.size).c_str());
-        mqtt.publish((baseTopic + "temperature").c_str(),          String(this->battery.temperature).c_str());
-        mqtt.publish((baseTopic + "voltageInPrecent").c_str(),     String(this->battery.voltageInPrecent).c_str());
-        mqtt.publish((baseTopic + "ecoVoltPrecent").c_str(),       String(this->battery.ecoVoltPrecent).c_str());
-        mqtt.publish((baseTopic + "boostVoltPrecent").c_str(),     String(this->battery.boostVoltPrecent).c_str());
-        mqtt.publish((baseTopic + "ecoTemp").c_str(),              String(this->battery.heater.ecoTemp).c_str());
-        mqtt.publish((baseTopic + "boostTemp").c_str(),            String(this->battery.heater.boostTemp).c_str());
-        mqtt.publish((baseTopic + "resistance").c_str(),           String(this->battery.heater.resistance).c_str());
-        mqtt.publish((baseTopic + "capct").c_str(),                String(this->battery.capct).c_str());
-        mqtt.publish((baseTopic + "chrgr").c_str(),                String(this->battery.charger.current).c_str());
-        mqtt.publish((baseTopic + "maxPower").c_str(),             String(this->battery.heater.maxPower).c_str());
-        mqtt.publish((baseTopic + "pidP").c_str(),                 String(this->battery.heater.pidP).c_str());
-        mqtt.publish((baseTopic + "pidI").c_str(),                 String(this->battery.heater.pidI).c_str());
-        mqtt.publish((baseTopic + "pidD").c_str(),                 String(this->battery.heater.pidI).c_str());
-        mqtt.publish((baseTopic + "tempBoost").c_str(),            String(this->battery.tempBoost).c_str());
-        mqtt.publish((baseTopic + "voltBoost").c_str(),            String(this->battery.voltBoost).c_str());
+        String baseTopic = "battery/" + String(battery.name) + "/";
+        mqtt.publish((baseTopic + "size").c_str(),                 String(battery.size).c_str());
+        mqtt.publish((baseTopic + "temperature").c_str(),          String(battery.temperature).c_str());
+        mqtt.publish((baseTopic + "voltageInPrecent").c_str(),     String(battery.voltageInPrecent).c_str());
+        mqtt.publish((baseTopic + "ecoVoltPrecent").c_str(),       String(battery.ecoVoltPrecent).c_str());
+        mqtt.publish((baseTopic + "boostVoltPrecent").c_str(),     String(battery.boostVoltPrecent).c_str());
+        mqtt.publish((baseTopic + "ecoTemp").c_str(),              String(battery.heater.ecoTemp).c_str());
+        mqtt.publish((baseTopic + "boostTemp").c_str(),            String(battery.heater.boostTemp).c_str());
+        mqtt.publish((baseTopic + "resistance").c_str(),           String(battery.heater.resistance).c_str());
+        mqtt.publish((baseTopic + "capct").c_str(),                String(battery.capct).c_str());
+        mqtt.publish((baseTopic + "chrgr").c_str(),                String(battery.chrgr.current).c_str());
+        mqtt.publish((baseTopic + "maxPower").c_str(),             String(battery.heater.maxPower).c_str());
+        mqtt.publish((baseTopic + "pidP").c_str(),                 String(battery.heater.pidP).c_str());
+        mqtt.publish((baseTopic + "pidI").c_str(),                 String(battery.heater.pidI).c_str());
+        mqtt.publish((baseTopic + "pidD").c_str(),                 String(battery.heater.pidI).c_str());
+        mqtt.publish((baseTopic + "tempBoost").c_str(),            String(battery.tempBoost).c_str());
+        mqtt.publish((baseTopic + "voltBoost").c_str(),            String(battery.voltBoost).c_str());
         // Publish MQTT settings
-        mqtt.publish((baseTopic + "mqtt/enable").c_str(),         String(this->battery.mqtt.enable).c_str());
+        mqtt.publish((baseTopic + "mqtt/enable").c_str(),         String(battery.mqtt.enable).c_str());
         // Publish Telegram settings
         // mqtt.publish((baseTopic + "telegram/enable/").c_str(), String(battery.telegram.enable).c_str());
         // }
@@ -1383,27 +1390,27 @@ void Battery::publishBatteryData() {
 
 void Battery::mqttSetup() {
     preferences.begin("btry", true);
-        this->battery.mqtt.enable     = preferences.getBool("mqtten");
-        this->battery.mqtt.server     = preferences.getString("mqttip");
-        this->battery.mqtt.port       = preferences.getInt("mqttport");
-        this->battery.mqtt.username   = preferences.getString("mqttusr");
-        this->battery.mqtt.password   = preferences.getString("mqttpass");
+        battery.mqtt.enable     = preferences.getBool("mqtten");
+        battery.mqtt.server     = preferences.getString("mqttip");
+        battery.mqtt.port       = preferences.getInt("mqttport");
+        battery.mqtt.username   = preferences.getString("mqttusr");
+        battery.mqtt.password   = preferences.getString("mqttpass");
     preferences.end();
     Serial.print("mqtt enable: ");
-    Serial.println(this->battery.mqtt.enable);
-    mqtt.setServer(this->battery.mqtt.server.c_str(), this->battery.mqtt.port);
+    Serial.println(battery.mqtt.enable);
+    mqtt.setServer(battery.mqtt.server.c_str(), battery.mqtt.port);
 }
 
 void Battery::handleMqtt() {
 
-    if(this->battery.mqtt.enable) {
+    if(battery.mqtt.enable) {
         mqtt.loop();
-        if (millis() - this->battery.mqtt.lastMessageTime > 10000 ) {
-            this->battery.mqtt.lastMessageTime = millis();
+        if (millis() - battery.mqtt.lastMessageTime > 10000 ) {
+            battery.mqtt.lastMessageTime = millis();
             if(!mqtt.connected()) {
                 Serial.print("Connecting to MQTT...");
                 // Attempt to connect
-                if (mqtt.connect("BatteryJesus", this->battery.mqtt.username.c_str(), this->battery.mqtt.password.c_str())) {
+                if (mqtt.connect("BatteryJesus", battery.mqtt.username.c_str(), battery.mqtt.password.c_str())) {
                     Serial.println("connected");
                     publishBatteryData();
                 } else {
@@ -1418,16 +1425,16 @@ void Battery::handleMqtt() {
     }}
 
 bool Battery::getMqttState() {
-    return this->battery.mqtt.enable;
+    return battery.mqtt.enable;
 }
 
 bool Battery::setMqttState(bool status) {
     if (status) {
-        this->battery.mqtt.enable = true;
+        battery.mqtt.enable = true;
         return true;
     }
     else {
-        this->battery.mqtt.enable = false;
+        battery.mqtt.enable = false;
         return true;
     }
     return false;
@@ -1435,32 +1442,32 @@ bool Battery::setMqttState(bool status) {
 
 
 bool Battery::getTelegramEn() {
-    return this->battery.telegram.enable;
+    return battery.telegram.enable;
 }
 
 bool Battery::setTelegramEn(bool status) {
     if (status) {
-        this->battery.telegram.enable = true;
+        battery.telegram.enable = true;
         return true;
     }
     else {
-        this->battery.telegram.enable = false;
+        battery.telegram.enable = false;
         return false;
     }
 }
 
 
 bool Battery::getHttpEn() {
-    return this->battery.http.enable;
+    return battery.http.enable;
 }
 
 bool Battery::setHttpEn(bool status) {
     if(status) {
-        this->battery.http.enable = true;
+        battery.http.enable = true;
         return true;
     }
     else {
-        this->battery.http.enable = false;
+        battery.http.enable = false;
         return false;
     }
 }

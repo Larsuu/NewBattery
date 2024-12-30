@@ -1,9 +1,8 @@
-#include <TelegramBot.h>
+#include "TelegramBot.h"
 
 // Constructor implementation
-TelegramBot::TelegramBot(WiFiClientSecure& client, const String& token, Battery& battery)
+TelegramBot::TelegramBot(WiFiClientSecure& client, const String& token)
     : AsyncTelegram2(client, bufferSize), 
-      device(battery), 
       client(), 
       rootMenu(nullptr), 
       currentNode(nullptr), 
@@ -16,7 +15,7 @@ TelegramBot::TelegramBot(WiFiClientSecure& client, const String& token, Battery&
 // Method to initialize the bot
 void TelegramBot::begin() {
     if (!initialized) {
-        setTelegramToken(device.battery.telegram.token.c_str());
+        //setTelegramToken(token.c_str());
         rootMenu = createMenuTree();
         currentNode = rootMenu;
         AsyncTelegram2::begin();
@@ -137,14 +136,8 @@ MenuNode* TelegramBot::createMenuTree() {
 
 
 
-
-
-
-
-
-
 // Method to send a message
-void TelegramBot::sendMessage(const TBMessage& msg, const char* text, const InlineKeyboard& keyboard) {
+void TelegramBot::sendMessage(const TBMessage& msg, const char* text, InlineKeyboard& keyboard) {
     if (initialized) {
         AsyncTelegram2::sendMessage(msg, text, keyboard); // Send the message using the bot
     }
@@ -153,7 +146,7 @@ void TelegramBot::sendMessage(const TBMessage& msg, const char* text, const Inli
 
 // Method to set a callback for handling button presses
 void TelegramBot::setCallback(std::function<void(const TBMessage&)> callback) {
-    int buttonCallback = callback; // Set the callback function
+    buttonCallback = callback; // Set the callback function
 }
 
 

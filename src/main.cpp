@@ -5,6 +5,7 @@
 #include <string>
 #include <functional>
 #include <Preferences.h>
+#include <AsyncTelegram2.h>
 
 #if defined(ESP32)
 #include <WiFi.h>
@@ -48,7 +49,12 @@
 #define FORCE_USE_HOTSPOT 0
 #define LOG_BUFFER 50
 
-Battery batt(TEMP_SENSOR, VOLTAGE_PIN, HEATER_PIN, CHARGER_PIN, GREEN_LED, YELLOW_LED, RED_LED);
+// This is correct - external code needs the reference
+Battery& batt = Battery::getInstance();
+
+
+AsyncTelegram2* bot;
+WiFiClient asiakas;  
 
 int tempest;
 int batteryInSeries;
@@ -75,7 +81,7 @@ uint16_t verticalVoltGroup, VerticalTempGroup, quickControls, horizontalGroup;
 uint16_t voltSwitcher, tempSwitcher, infoLabel, timeLabel, timeString, extraLabel, ultraLabel, chargerTimespan, quickPanelVoltage;
 uint16_t logLabel, firstLogLabel, secondLogLabel, thirdLogLabel, fourthLogLabel;
 
-uint16_t pidPLabel, pidPText, pidPNum;
+// uint16_t pidPLabel, pidPText;
 
 uint16_t heater, heaterRes, heaterNum;
 
@@ -150,38 +156,17 @@ bool telegEn = false;
 
 
 void setup() {
+
 	  Serial.begin(115200);
-    batt.setup();
+    batt.loadSettings(ALL);
+    
 
 
-  preferences.begin("btry", true);
-    batt.battery.http.enable = preferences.getBool("httpen");
-    batt.battery.http.username = preferences.getString("httpusr");
-    batt.battery.http.password = preferences.getString("httppwd");
-    batt.battery.myname = preferences.getString("myname");
-    batt.battery.wlan.ssid = preferences.getString("wssid", String("Olohuone"));
-    batt.battery.wlan.pass = preferences.getString("wpass", String("10209997"));
-
-    // stored_ssid = preferences.getString("ssid", String("Olohuone"));
-    // stored_pass = preferences.getString("pass", String("10209997"));
-  preferences.end();
-
-  // Serial.println("Stored SSID:" + stored_ssid);
-  // Serial.println("Stored Pass:" + stored_pass);
-
-/*
-                // Open Preferences with a namespace
-        preferences.begin("wifi", false); // "wifi" is the namespace, false means read/write
-        // Save SSID and Password
-        preferences.putString("ssid", ESPUI.getControl(wifi_ssid_text)->value);
-        preferences.putString("password", ESPUI.getControl(wifi_pass_text)->value);
-        preferences.end(); // Close Preferences  
-*/
 
 #if defined(ESP32)
-    WiFi.setHostname(batt.battery.myname.c_str());  // needs to be before setUpUI!!   
+    WiFi.setHostname(batt.battery.name.c_str());  // needs to be before setUpUI!!   
 #else
-    WiFi.hostname(batt.battery.myname.c_str());
+    WiFi.hostname(batt.battery.name.c_str());
 #endif
 	while(!Serial);
 	if(SLOW_BOOT) delay(5000); //Delay booting to give time to connect a serial monitor
@@ -339,6 +324,8 @@ void setUpUI() {
                       ESPUI.setElementStyle(heaterNum, "background-color: transparent; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield; width: 25%;");
                       ESPUI.setElementStyle(ESPUI.addControl(Label, "A", "Ohm", Emerald, group1), "font-size: medium; font-family: serif; width: 25%; text-align: left; background-color: unset; color: darkslategray;");
 //   PID P Term
+
+/*
   pidPText          = ESPUI.addControl(Label, "PID_Ptext", "Proportional", None, group1);    
                       ESPUI.setElementStyle(pidPText, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;");
 
@@ -347,7 +334,7 @@ void setUpUI() {
                       ESPUI.addControl(Max, "", "10", None, pidPNum);
                       ESPUI.setElementStyle(pidPNum, "background-color: transparent; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield; width: 25%;");
                       ESPUI.setElementStyle(ESPUI.addControl(Label, "Precent", " ", Emerald, group1), "font-size: medium; font-family: serif; width: 25%; text-align: left; background-color: unset; color: darkslategray;");
-
+*/
 // ---------------------------
   text8             = ESPUI.addControl(Label, "Chrgr", "Battery Charger Info", Emerald, group1);
                       ESPUI.setElementStyle(text8, "text-align: left; font-size: small; font-family: serif; width: 100%; background-color: unset; color: black; margin-top: 20px; border-bottom: 1px solid darkslategray; padding-bottom: 5px;");
@@ -469,10 +456,37 @@ saveButton = ESPUI.addControl(Button, "Memory", "Save", None, group1, [](Control
         Serial.println(ESPUI.getControl(text10)->value);
         Serial.println(ESPUI.getControl(text12)->value);
         Serial.println(ESPUI.getControl(heaterNum)->value);
-        Serial.println(ESPUI.getControl(pidPNum)->value);
+        //Serial.println(ESPUI.getControl(pidPNum)->value);
         Serial.println(ESPUI.getControl(nameLabel)->value);
-        Serial.println("Saved in Dyn memory...");
-        Serial.print("StringSta: "); 
+        Serial.println("getControls..");
+
+
+        if(batt.setHostname(ESPUI.getControl(nameLabel)->value)) Serial.println("Hostname set");
+
+        if(batt.setNominalString(ESPUI.getControl(seriesConfigNum)->value.toInt())) Serial.println("Nominal string set");
+
+        if(batt.setEcoTemp(ESPUI.getControl(ecoTempNum)->value.toInt())) Serial.println("Eco temp set");
+
+        if(batt.setEcoPrecentVoltage(ESPUI.getControl(ecoVoltNum)->value.toInt())) Serial.println("Eco precent voltage set");
+
+        if(batt.setBoostTemp(ESPUI.getControl(boostTemp)->value.toInt())) Serial.println("Boost temp set");
+
+        if(batt.setBoostPrecentVoltage(ESPUI.getControl(boostVolts)->value.toInt())) Serial.println("Boost precent voltage set");
+
+        if(batt.setCharger(ESPUI.getControl(text10)->value.toInt())) Serial.println("Charger set");
+
+        if(batt.setResistance(ESPUI.getControl(heaterNum)->value.toInt())) Serial.println("Resistance set");
+
+        if(batt.setCapacity(ESPUI.getControl(text12)->value.toInt())) Serial.println("Capacity set");
+
+        batt.saveSettings(SETUP); 
+
+      }
+    }
+);
+
+
+        
         /*
         Serial.println(batt.getNominalString());
         Serial.println("ecoP: " + batt.getEcoPrecentVoltage());
@@ -493,8 +507,11 @@ saveButton = ESPUI.addControl(Button, "Memory", "Save", None, group1, [](Control
 
         Serial.println("PIDP:" + batt.getPidP()); */
 
-      if (    batt.setNominalString(ESPUI.getControl(seriesConfigNum)->value.toInt())   )  {
+      // if (    batt.setNominalString(ESPUI.getControl(seriesConfigNum)->value.toInt())   )  {
 
+         //      batt.saveSettings(Battery::SettingsType::SETUP);
+
+              /*
               Serial.print("ecoPrecent: ");
               Serial.println(batt.setEcoPrecentVoltage(ESPUI.getControl(ecoVoltNum)->value.toInt()));
 
@@ -524,13 +541,13 @@ saveButton = ESPUI.addControl(Button, "Memory", "Save", None, group1, [](Control
               
               Serial.println("All ok! Saving settings to memory..."); 
                // batt.saveSettings();
-      } 
-      else { 
-        Serial.println("Error: Invalid input"); 
-      }
+               */
+      // } 
+      // else { 
+      //   Serial.println("Error: Invalid input"); 
+      // }
 
-    } 
-});
+
 ESPUI.setElementStyle(saveButton, "width: 20%; text-align: center; font-size: medium; font-family: serif; margin-top: 20px; margin-bottom: 20px; border-radius: 15px;");
 
 /*
@@ -727,8 +744,9 @@ uint16_t tgButton = ESPUI.addControl(Button, "Memory", "Save", None, tgLabel, []
     ESPUI.updateControlValue(chargerTimeFeedback, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
     ESPUI.updateControlValue(chargerTimespan, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
     ESPUI.updateControlValue(heaterNum, String(batt.getResistance()));
-    ESPUI.updateControlValue(pidPNum, String(batt.getPidP()));
-    ESPUI.updateControlValue(nameLabel, String(batt.battery.myname));
+    ESPUI.updateControlValue(nameLabel, String(batt.battery.name));
+
+    ESPUI.updateControlValue(localAddr, String("http://" + batt.battery.name + ".local"));
 
 
     ESPUI.updateSwitcher(voltSwitcher, batt.getActivateVoltageBoost());
@@ -736,6 +754,14 @@ uint16_t tgButton = ESPUI.addControl(Button, "Memory", "Save", None, tgLabel, []
     ESPUI.updateSwitcher(mqttEnable, batt.getMqttState());
     ESPUI.updateSwitcher(tgEnable, batt.getTelegramEn());
     ESPUI.updateSwitcher(httpEnable, batt.getHttpEn());
+
+    /*
+    if(batt.battery.telegram.enable) {
+        batt.telegramEnabled = true; // Enable the Telegram bot
+        batt.initBot(); // Initialize the Telegram bot
+    }
+    */
+
 
 //  if(httpEn)
 //    ESPUI.begin(hostname, httpUserAcc.c_str(), httpPassAcc.c_str());
@@ -916,6 +942,8 @@ void telegramEnableCallback(Control *sender, int type) {
             preferences.begin("btry", false);
             preferences.putBool("tgen", true);
             preferences.end();
+
+            //telegramSetup();
         break;
 	case S_INACTIVE:
           batt.battery.telegram.enable = false;
@@ -1120,7 +1148,7 @@ void loop() {
 }
 
 bool checkAndLogState() {
-    if ((batt.battery.vState != batt.battery.previousVState) || (batt.battery.tState != batt.battery.previousTState)) {
+    if ((batt.battery.vState != batt.battery.prevVState) || (batt.battery.tState != batt.battery.prevTState)) {
       
       /*
         String newState = "VState: " + String(Battery::batry.vState) + ", TState: " + String(Battery::batry.tState);
@@ -1151,7 +1179,7 @@ void connectWifi() {
 	int connect_timeout;
 
 #if defined(ESP32)
-	WiFi.setHostname(batt.battery.myname.c_str());
+	WiFi.setHostname(batt.battery.name.c_str());
 #else
 	WiFi.hostname(HOSTNAME);
 #endif
@@ -1179,7 +1207,7 @@ void connectWifi() {
 		Serial.println(WiFi.localIP());
 		Serial.println("Wifi started");
 
-		if (!MDNS.begin(batt.battery.myname.c_str())) {
+		if (!MDNS.begin(batt.battery.name.c_str())) {
 			Serial.println("Error setting up MDNS responder!");
 		}
 	} else {
