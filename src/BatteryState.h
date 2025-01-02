@@ -28,7 +28,6 @@ enum TempState {
 struct batteryState {
 private:
     int error;
-
 public:
   
     // Member variables
@@ -68,6 +67,7 @@ public:
 
     // Nested struct for heater
     struct resistor {
+        uint32_t    time;       // Last message time
         uint8_t     resistance; // Heater resistance
         uint8_t     ecoTemp;    // Eco temperature
         uint8_t     boostTemp;  // Boost temperature
@@ -75,7 +75,13 @@ public:
         float       pidP;       // PID proportional
         float       pidI;       // PID integral
         float       pidD;       // PID derivative
-        uint32_t    time;       // Last message time
+        float       pidInput;   // PID input
+        float       pidSetpoint; // PID setpoint
+        float       pidOutput;  // PID output
+        bool        pidRun;     // PID stune run
+        bool        pidDone;    // PID stune done
+        bool        pidEnable;  // PID sTune enable
+        bool        enable;
     } heater;
 
     // Nested struct for WiFi
@@ -96,6 +102,7 @@ public:
     // Nested struct for MQTT
     struct mosquitto {
         bool        enable;   // Enable/disable MQTT
+        bool        setup; // MQTT connected
         String      username; // MQTT username
         String      password; // MQTT password
         String      server;   // MQTT server
@@ -113,6 +120,7 @@ public:
 
     // Nested struct for sTune
     struct stune {
+        uint32_t    time;         // Last message time
         float       inputSpan;    // Input span
         float       outputSpan;   // Output span
         float       outputStart;  // Output start
@@ -121,7 +129,20 @@ public:
         uint32_t    settleTimeSec; // Settle time
         uint32_t    samples;      // Samples
         float       tempLimit;    // Temperature limit
-        uint32_t    time;         // Last message time
+
+        bool        enable;       // Enable/disable sTune
+        bool        firstRunPID;  // First run PID
+        bool        run;          // Run/stop sTune
+        bool        done;         // Done/not done sTune
+        bool        error;        // Error/no error sTune
+
+        float       pidInput;     // PID input
+        float       pidOutput;    // PID output
+        float       pidSetpoint;  // PID setpoint
+
+        float       pidP;         // PID P
+        float       pidI;         // PID I
+        float       pidD;         // PID D
     } stune;
 
     struct adc {
@@ -131,16 +152,16 @@ public:
         uint32_t    index;      // Index
         uint32_t    sum;        // Sum
         uint32_t    avg;        // Average
-        uint8_t     mAvg;
+        uint8_t     mAvg;                           // integer div by zero!
         uint32_t    readings[5];
-
     } adc;
 
   // Public constructor to initialize batteryState with default values
-    batteryState(uint8_t initialSize = 7, float initialTemperature = 25.0, String initialName = "Onni")
-        : size(initialSize), 
-          temperature(initialTemperature),
-          name(initialName),
+    batteryState()
+        : error(0),
+          size(0), 
+          temperature(25.0),
+          name("Onni"),
           ecoVoltPrecent(50), 
           boostVoltPrecent(80),
           voltBoost(false),
@@ -151,13 +172,15 @@ public:
           capct(10),     
           chrgr{1, false, 0}, // Initialize charger struct
           timer{0, 0, 0, 0}, // Initialize timer struct
-          heater{0, 0, 0, 0, 0.0, 0.0, 0.0, 0}, // Initialize heater struct
+          heater{0, 0, 0, 0, 0, 1.0, 0.01, 0.2, 0.0, 0.0, false, false, false, false}, // Initialize heater struct
           wlan{false, "", "", 0}, // Initialize WiFi struct
           http{false, "", ""}, // Initialize HTTP struct
-          mqtt{false, "", "", "", 1883, 0}, // Initialize MQTT struct
+          mqtt{false, false, "", "", "", 1883, 0}, // Initialize MQTT struct
           telegram{false, "", 0, 0}, // Initialize Telegram struct
-          stune{0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0.0, 0}, // Initialize sTune struct
-          adc{0,0,0,0,0,0,5}
+        
+        // time,  input, output, outputStart, outputStep, testTimeSec, settleTimeSec, samples, firstRunPID, run, done, error, pidInput, pidOutput, pidSetpoint, pidP, pidI, pidD, pidEnable
+          stune{5000, 40.0, 100.0,  0.0,         50.0,       60,         10,            60,     40.0, true, true, false, false, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, // Initialize stune struct
+          adc{0, 0, 0, 0, 0, 0, 5, {0, 0, 0, 0, 0}} // Initialize adc struct with correct types
     {}
 
 };

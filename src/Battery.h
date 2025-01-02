@@ -58,137 +58,6 @@
 #define ADC_CHANNEL ADC1_CHANNEL_3
 #define ADC_ATTEN ADC_ATTEN_DB_11
 
-/*
-// Add these enum definitions before the batteryState struct
-enum VoltageState { 
-    LAST_RESORT             =   0,
-    LOW_VOLTAGE_WARNING     =   1,  
-    PROTECTED               =   2,
-    ECONOMY                 =   3,
-    BOOST                   =   4,  
-    VBOOST_RESET            =   5   
-};
-
-enum TempState {
-    SUBZERO                 =  0,
-    ECO_TEMP                =  1,
-    BOOST_TEMP              =  2,
-    OVER_TEMP               =  3,
-    TEMP_WARNING            =  4,
-    TBOOST_RESET            =  5,
-    DEFAULT_TEMP            =  6
-};
-*/
-
-/*
-struct batteryState {
-    String          name;
-    uint8_t         size;                       
-    float           temperature;
-    uint8_t         wantedTemp;
-    uint32_t        milliVoltage;
-    uint8_t         voltageInPrecent;
-    uint8_t         ecoVoltPrecent;             // Eco voltage percentage
-    uint8_t         boostVoltPrecent;           // Boost voltage percentage
-    uint8_t         capct;                      // Capacity
-    bool            voltBoost;
-    bool            tempBoost;
-    TempState       tState;      
-    VoltageState    vState;
-    TempState       prevTState;
-    VoltageState    prevVState;
-    bool            firstRun;
-    uint32_t        lastMessageTime; // Last message time
-    int             sizeApprx;
-
-    struct charger {
-        uint8_t     current; // Charger current
-        bool        enable; // Enable/disable
-        uint32_t    time; // Last message time
-    } chrgr;
-
-    struct timer {
-        uint32_t    voltMs;
-        uint32_t    voltFet;
-        uint32_t    tempMillis;
-        uint32_t    heaterMillis;
-    } timer;
-
-    struct resistor {
-        uint8_t     resistance; // Heater resistance
-        uint8_t     ecoTemp; // Eco temperature
-        uint8_t     boostTemp; // Boost temperature
-        uint8_t     maxPower; // Maximum power
-        float       pidP; // PID proportional
-        float       pidI; // PID integral
-        float       pidD; // PID derivative
-        uint32_t    time;
-    } heater;
-
-    struct wifi {
-        bool        enable; // Enable/disable
-        String      ssid; // WiFi SSID
-        String      pass; // WiFi password
-        uint32_t    time;
-    } wlan;
-
-    struct lan {
-        bool        enable; // Enable/disable
-        String      username; // HTTP username
-        String      password; // HTTP password
-    } http;
-
-    struct mosquitto {
-        bool        enable; // Enable/disable
-        String      username; // MQTT username
-        String      password; // MQTT password
-        String      server; // MQTT server
-        uint16_t    port; // Uncomment if needed
-        uint32_t    lastMessageTime; // Last message time
-    } mqtt;
-
-    struct tg {
-        bool        enable; // Enable/disable
-        String      token; // Telegram token
-        int         chatId; // Telegram chat ID
-        uint32_t    lastMessageTime; // Last message time
-    } telegram;
-
-    struct stune {
-        float       inputSpan; // Input span
-        float       outputSpan; // Output span
-        float       outputStart; // Output start
-        float       outputStep; // Output step
-        uint32_t    testTimeSec; // Test time
-        uint32_t    settleTimeSec; // Settle time
-        uint32_t    samples; // Samples
-        float       tempLimit; // Temperature limit
-        uint32_t    time;
-    } stune;
-
-    // Constructor to initialize batteryState with default values
-    batteryState(uint8_t initialSize = 1, float initialTemperature = 25.0, String initialName = "Onni")
-        :   size(initialSize), 
-            temperature(initialTemperature),
-            name(initialName),
-            ecoVoltPrecent(50), 
-            boostVoltPrecent(80),
-            voltBoost(false),
-            tempBoost(false),
-            firstRun(true),
-            tState(SUBZERO),
-            vState(LAST_RESORT),   
-            capct(10),     
-            heater{20, 25, 30, 30, 2.0, 0.01, 0.1},     
-            wlan{true, "Olohuone", "10209997"}, // Example WiFi credentials
-            http{true, "admin", "password"}, // Example HTTP credentials
-            mqtt{true, "mqttUser", "mqttPass", "mqtt.server.com", 1883, 0}, // Example MQTT credentials
-            telegram{true, "myTelegramToken", 123456789, 0}, // Example Telegram credentials
-            stune{1.0, 2.0, 0.0, 0.1, 10, 5, 100, 50.0, 0} // Example sTune values
-    {};
-};
-*/
-
 //class TelegramBot;  // forward declaration lazy load.
 
 // Add this enum definition before the Battery class
@@ -229,15 +98,9 @@ public:
     // Global variables for telegram
     const char* MYTZ = "EET-2EEST,M3.5.0/3,M10.5.0/4"; 
 
-    // Battery Voltage Reading variables.
-    u_int32_t MOVAreadings[MOVING_AVG_SIZE] = {};
-    u_int32_t varianceReadings[MOVING_AVG_SIZE] = {};
-    int MOVAIndex = 0;
-    u_int32_t MOVASum = 1;
-    // uint32_t voltVal = 0;
-    // uint32_t calVoltVal = 0;
-
-    
+    const char* mqttID = "bj";
+    const char* mqttUser = "mosku";
+    const char* mqttPassword = "kurkku123";
 
     unsigned long currentMillis = 0;
     unsigned long voltageMillis = 0;
@@ -266,24 +129,10 @@ public:
     float ki = 0.02;
     float kd = 0.02;
 
-    float ap = 100;
-    float ai = 75;
-    float ad = 0;
+    // float ap = 100;
+    // float ai = 75;
+    // float ad = 0;
 
-/*
-    // sTune user settings
-    uint32_t settleTimeSec = 10;
-    uint32_t testTimeSec = 200;
-    const uint16_t samples = 600;
-    const float inputSpan = 40;
-    const float outputSpan = 255;
-    float outputStart = 0;
-    float outputStep = 200;
-    float tempLimit = 40;
-*/
-
-    // sTune tuner = sTune(&pidInput, &pidOutput, tuner.ZN_PID, tuner.directIP, tuner.printALL);
-    
     void loop();
     void setup();
 
@@ -306,6 +155,7 @@ public:
     
     bool setPidP(float pidP);
     int getPidP();
+    void runTune();
 
     bool getChargerStatus();
     void charger(bool state);
@@ -390,8 +240,8 @@ public:
           oneWire(tempSensor),
           dallas(&oneWire),
           mqtt(espClient),
-          heaterPID(&pidInput, &pidOutput, &pidSetpoint, kp, ki, kd, QuickPID::Action::direct),
-          tuner(&pidInput, &pidOutput, tuner.ZN_PID, tuner.directIP, tuner.printALL),
+          heaterPID(&battery.heater.pidInput, &battery.heater.pidOutput, &battery.heater.pidSetpoint, kp, ki, kd, QuickPID::Action::direct),
+          tuner(&battery.stune.pidInput, &battery.stune.pidOutput, tuner.ZN_PID, tuner.directIP, tuner.printALL),
           red(redLed),
           green(greenLed),
           yellow(yellowLed)
@@ -399,6 +249,9 @@ public:
         adc1_config_width(ADC_WIDTH_12Bit);
         adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
         esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH_BIT_12, V_REF, &characteristics);
+
+        heaterPID.SetMode(QuickPID::Control::manual);
+        heaterPID.SetOutputLimits(0, 25);
 
         green.start();
         green.setDelay(1000);
@@ -408,6 +261,9 @@ public:
 
         red.start();
         red.setDelay(1000, 0);
+
+        tuner.Configure(battery.stune.inputSpan, battery.stune.outputSpan, battery.stune.outputStart, battery.stune.outputStep, battery.stune.testTimeSec, battery.stune.settleTimeSec, battery.stune.samples);
+        tuner.SetEmergencyStop(battery.stune.tempLimit);
     }
     
     Blinker red;

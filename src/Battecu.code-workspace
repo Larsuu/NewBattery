@@ -3,5 +3,12 @@
         {
             "path": ".."
         }
-    ]
+    ],
+    "settings": {
+        "files.associations": {
+            "*.tcc": "cpp",
+            "limits": "cpp",
+            "cmath": "cpp"
+        }
+    }
 }
