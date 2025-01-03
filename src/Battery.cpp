@@ -72,28 +72,24 @@ void Battery::setup() {
 
 void Battery::loop() {
 
-    red.blink();
-
-    green.blink(); 
-
-    yellow.blink();  
-
-    handleBatteryControl();         // Logic for battery control
+    readTemperature();              // Temperature reading
 
     readVoltage(5000);                 // Voltage reading
 
+    handleBatteryControl();         // Logic for battery control
+
     updateHeaterPID();              // PID calibration -> runtune()
+        runTune();
 
     controlHeaterPWM(battery.heater.pidOutput);
     
-    readTemperature();              // Temperature reading
-
     handleMqtt();                   // handle mqtt loop & connection & enable
 
-    runTune();
+    red.blink();
+    green.blink(); 
+    yellow.blink();  
 
 }  // end loop
-
 
 void Battery::runTune() {
     if (battery.stune.firstRunPID && millis() >= 120000) {
@@ -116,50 +112,55 @@ void Battery::runTune() {
                     tuner.GetAutoTunings(&stune.pidP, &stune.pidI, &stune.pidD); // Get tuned values
 
                     if ((tuner.GetTau() / tuner.GetDeadTime()) > 0.5) {
-
-                        stune.firstRunPID = false; // Set to false after succesful tuning!! 
+                        // Good tunability - complete the tuning process
+                        stune.firstRunPID = false;
                         stune.run = false;
                         stune.done = true;
+                        stune.error = false;
 
                         heaterPID.SetOutputLimits(0, stune.outputSpan * 0.1);
                         heaterPID.SetSampleTimeUs((stune.outputSpan - 1) * 1000);
-                        heaterPID.SetMode(QuickPID::Control::automatic); // Turn on PID
+                        heaterPID.SetMode(QuickPID::Control::automatic);
                         heaterPID.SetProportionalMode(QuickPID::pMode::pOnMeas);
                         heaterPID.SetAntiWindupMode(QuickPID::iAwMode::iAwClamp);
-                        heaterPID.SetTunings(stune.pidP, stune.pidI, stune.pidD); // Update PID with new tunings
+                        heaterPID.SetTunings(stune.pidP, stune.pidI, stune.pidD);
+                        
                         heater.pidP = stune.pidP;
                         heater.pidI = stune.pidI;
                         heater.pidD = stune.pidD;
                     }
                     else { 
-                    
-                        for(int i = 0; i < 5; i++) {
-
+                        for(int i =1; i < 6; i++) {
                               if (stune.run) {
-                                  // Calculate the next outputStep value logarithmically
-                                  float logStep = log10(stune.outputStep + 1); // log10 to ensure positive values
-                                  logStep += 0.5; // Increment logarithmically
-                                  stune.outputStep = static_cast<uint8_t>(pow(10, logStep) - 1); // Convert back to linear scale
-                                  stune.outputStep = constrain(stune.outputStep, 50, 255); // Ensure it stays within bounds
-
-                                  // Calculate the next testTimeSec value logarithmically
-                                  float logTime = log10(stune.testTimeSec + 1); // log10 to ensure positive values
-                                  logTime += 0.5; // Increment logarithmically
-                                  stune.testTimeSec = static_cast<uint32_t>(pow(10, logTime) - 1); // Convert back to linear scale
-                                  stune.testTimeSec = constrain(stune.testTimeSec, 60, 300); // Ensure it stays within bounds
+                                  stune.outputStep += constrain(255 / i, 50, 255); // Ensure it stays within bounds
+                                  stune.testTimeSec += constrain(300 / i, 60, 360); // Ensure it stays within bounds
                                   stune.samples = stune.testTimeSec;
                               }
                         }
 
-                       // Check if the tunability condition is met
-                       if (((tuner.GetTau() / tuner.GetDeadTime()) <= 0.5) ||  (tuner.GetKp() < 1 && tuner.GetKp() > 100)) {
-                           stune.error = true; // Set error if tunability is not sufficient
-                       } else {
-                           stune.done = true; // Set done if tunability is sufficient
-                       }
-                    tuner.Configure(battery.stune.inputSpan, battery.stune.outputSpan, battery.stune.outputStart, battery.stune.outputStep, battery.stune.testTimeSec, battery.stune.settleTimeSec, battery.stune.samples);
+                        // Check tunability conditions
+                        if ((tuner.GetTau() / tuner.GetDeadTime()) <= 0.5 || 
+                            tuner.GetKp() < 1 || tuner.GetKp() > 100) {
+                            stune.error = true;
+                            stune.done = false;
+                        } else {
+                            stune.error = false;
+                            stune.done = true;
+                        }
+
+                        // Reconfigure tuner with new parameters
+                        tuner.Configure(
+                            battery.stune.inputSpan,
+                            battery.stune.outputSpan,
+                            battery.stune.outputStart,
+                            battery.stune.outputStep,
+                            battery.stune.testTimeSec,
+                            battery.stune.settleTimeSec,
+                            battery.stune.samples
+                        );
                     }
 
+                    // Debug output
                     Serial.println("Tunings");
                     Serial.print("tunability: ");
                     Serial.println(tuner.GetTau() / tuner.GetDeadTime());
@@ -178,7 +179,7 @@ void Battery::runTune() {
                     Serial.println(stune.pidD);
                     break;
 
-                case tuner.runPid: // Active once per sample after tunings
+                case tuner.runPid:
                     Serial.println("RunPid ready");
                     break;
             }      
@@ -188,9 +189,7 @@ void Battery::runTune() {
     the QuickPID Wrapping Function, executed every second. 
 */
 void Battery::updateHeaterPID() {
-
     if(battery.stune.enable) runTune();
-
 }
 /*
     Control the PWM with updateHeaterPID function
@@ -239,20 +238,22 @@ void Battery::handleBatteryControl() {
             charger(false);
             battery.tState = this->getTempState(battery.temperature);         
         }
+
     switch (battery.vState) {
             case LAST_RESORT:
                     battery.tState = this->getTempState(battery.temperature);
+
                     if(battery.tState != SUBZERO && battery.tState != TEMP_WARNING) 
                         {
                             charger(true); 
-                            red.setDelay(1000, 2000);
-                            green.setDelay(1000, 0);
+                            red.setDelay(1000, 1000);
                             yellow.setDelay(1000, 0);
+                            green.setDelay(1000, 0);
                         }
                     else 
                         { 
                             charger(false);
-                            red.setDelay(0, 5000);
+                            red.setDelay(0, 1000);
                         }
                 break;
             case LOW_VOLTAGE_WARNING:
@@ -262,13 +263,14 @@ void Battery::handleBatteryControl() {
                         { 
                             charger(true); 
                             red.setDelay(1000);
-                            green.setDelay(1000, 0);
                             yellow.setDelay(1000);
+                            green.setDelay(1000, 0);
+                            
                         }
                     else 
                         { 
                             charger(false); 
-                            red.setDelay(0, 2500);
+                            red.setDelay(0, 1000);
                         }
                 break;
             case PROTECTED:
@@ -283,9 +285,9 @@ void Battery::handleBatteryControl() {
                 break;
             case ECONOMY:
                     red.setDelay(1000, 0);
+                    yellow.setDelay(1000, 0);
                     green.setDelay(0, 1000);
-                    yellow.setDelay(1000);
-
+                    
                     battery.tState = this->getTempState(battery.temperature);
 
                     if(battery.tState != SUBZERO && battery.tState != TEMP_WARNING ) 
@@ -294,8 +296,8 @@ void Battery::handleBatteryControl() {
                 break;
             case BOOST:
                     red.setDelay(1000, 0);
-                    green.setDelay(0, 1000);
-                    yellow.setDelay(1000);
+                    yellow.setDelay(1000, 0);
+                    green.setDelay(1000);
 
                     battery.tState = this->getTempState(battery.temperature);
 
@@ -307,12 +309,9 @@ void Battery::handleBatteryControl() {
             case VBOOST_RESET:
                     red.setDelay(1000, 0);
                     yellow.setDelay(1000, 0);
-                    green.setDelay(0, 1000);
+                    green.setDelay(500);
 
                     battery.tState = this->getTempState(battery.temperature);
-
-                    if (!battery.voltBoost) 
-                        { charger(false); }
 
                     if(getActivateVoltageBoost()) 
                         { activateVoltageBoost(false); }
@@ -326,7 +325,6 @@ void Battery::handleBatteryControl() {
     switch (battery.tState) {
             case SUBZERO:
                     red.setDelay(0, 1000);
-
                     charger(false);
 
                  break;
@@ -348,7 +346,6 @@ void Battery::handleBatteryControl() {
             case TEMP_WARNING:
                     charger(false);
                     battery.wantedTemp = 0;
-                    // controlHeaterPWM(0);
 
                 break;
             case TBOOST_RESET:
@@ -357,7 +354,6 @@ void Battery::handleBatteryControl() {
 
                 break;
            case DEFAULT_TEMP:
-                    // controlHeaterPWM(0);
                     battery.wantedTemp = 0;
 
                 break;
@@ -365,30 +361,18 @@ void Battery::handleBatteryControl() {
                 Serial.println("unknown type in the temp state");
                 break;
     }
-
+ /*
     Serial.print("Temp: ");
     Serial.print(battery.temperature);
-
-    // Serial.print(" Kp: ");
-    // Serial.print(Battery::kp);
-
-    // Serial.print(" Ki: ");
-    // Serial.print(Battery::ki);
     Serial.print(" ");
     Serial.print(battery.tState);
     Serial.print(" ");
-    Serial.print(battery.vState);
-   //  Serial.print(" in:  ");
-   //  Serial.print(pidInput);
-   //  Serial.print(" Out:  ");
-   //  Serial.print(pidOutput);
-   //  Serial.print(" Set:  ");               
-   //  Serial.print(pidSetpoint);        
+    Serial.print(battery.vState);     
     Serial.print(" Vstate: ");
     Serial.print(static_cast<int>(battery.vState));
     Serial.print(", Tstate: ");
-    Serial.println(static_cast<int>(battery.tState));
-    
+    Serial.println(static_cast<int>(battery.tState)); */
+
     battery.vState = battery.vState;
     battery.tState = battery.tState;
     lastVoltageStateTime = currentMillis;
@@ -402,7 +386,7 @@ void Battery::handleBatteryControl() {
 */
 VoltageState Battery::getVoltageState(int voltagePrecent) {
     if ( voltagePrecent < 10) {
-     return LAST_RESORT;  
+        return LAST_RESORT;  
     } else if (voltagePrecent >= 10 && voltagePrecent < 20) {
         return LAST_RESORT;                                                             // Lets shut all down
     } else if (voltagePrecent >= 20 && voltagePrecent < 30) {
@@ -776,8 +760,6 @@ float Battery::btryToVoltage(int precent) {
     }
 }
 /*
-
-
     Lets convert the given milliVoltage to precentage at given series 
 */
 int Battery::getVoltageInPercentage(uint32_t milliVoltage) {
@@ -803,8 +785,6 @@ int Battery::getVoltageInPercentage(uint32_t milliVoltage) {
     }
 }
 /*
-
-
     Batterys Depth of Discharge percentage return.
 */
 int Battery::getBatteryDODprecent() {
@@ -813,16 +793,18 @@ int Battery::getBatteryDODprecent() {
     return battery.voltageInPrecent;
 }
 /*
-
     Setters and Getters for battery economy voltage settings.
         ESPUI interface for the user to set the battery voltage settings.
     
     ECONOMY CHARGING
 */
 bool Battery::setEcoPrecentVoltage(int value) {
-    if(value > 49 && value < 101 && value < battery.boostVoltPrecent) {
-        battery.ecoVoltPrecent = value;
+    if(value > 49 && value < 101 ) {
+        if (value < battery.boostVoltPrecent) {
+            battery.ecoVoltPrecent = value;
         return true;
+        }
+        else return false;
     }
     else return false;
 }
@@ -838,11 +820,16 @@ uint8_t Battery::getEcoPrecentVoltage() {
         Have some filtering, maybe some error handling. Lets worry about that later on.
 */
 bool Battery::setBoostPrecentVoltage(int boostPrecentVoltage) {
-        if(boostPrecentVoltage > battery.ecoVoltPrecent && boostPrecentVoltage < 101) {
+   
+    if(boostPrecentVoltage > 49 && boostPrecentVoltage < 101) {
+        
+        if(boostPrecentVoltage > battery.ecoVoltPrecent) {
             battery.boostVoltPrecent = boostPrecentVoltage;
             return true;
         }
-        else return false;        
+        else return false;       
+    }
+    else return false;
 }
 
 // @brief Get the battery boost voltage percentage endpoint
@@ -907,14 +894,17 @@ uint8_t Battery::getBoostTemp() {
 }
 
 bool Battery::setBoostTemp(int boostTemp) {
+
     if(boostTemp > 9 && boostTemp < 41)
         if(boostTemp > battery.heater.ecoTemp) {
             battery.heater.boostTemp = boostTemp;
             return true;
         }
         else return false;
+
     else return false;
 }
+
 /*
     Temp and Voltage boost settings. 
         - Activate and deactivate the boost settings. 
@@ -964,6 +954,7 @@ bool Battery::activateVoltageBoost(bool voltBoost) {
         preferences.begin("btry", false);           // Open preferences with namespace "battery_settings"
         preferences.putBool("vboost", false);
         preferences.end();                          // Close preferences
+        charger(false);
         return true;
     }
     else return false;
@@ -1164,17 +1155,6 @@ bool Battery::getChargerStatus() {
     return battery.chrgr.enable;
 }
 
-/*
-void Battery::setupTelegram(const char* token, const char* chatId) {
-        // strncpy(battery.telegram.token, token, sizeof(battery.telegram.token)-1);
-        // strncpy(battery.telegram.chatId, chatId, sizeof(battery.telegram.chatId)-1);  
-        client.setInsecure();  // Skip certificate validation
-        telegram.setTelegramToken(token);
-        telegram.begin();
-        // battery.telegram.enable = true;
-    }
-    */
-
 void Battery::publishBatteryData() {
         String baseTopic = "battery/" + String(battery.name) + "/";
         mqtt.publish((baseTopic + "size").c_str(),                 String(battery.size).c_str());
@@ -1190,13 +1170,14 @@ void Battery::publishBatteryData() {
         mqtt.publish((baseTopic + "maxPower").c_str(),             String(battery.heater.maxPower).c_str());
         mqtt.publish((baseTopic + "pidP").c_str(),                 String(battery.heater.pidP).c_str());
         mqtt.publish((baseTopic + "pidI").c_str(),                 String(battery.heater.pidI).c_str());
-        mqtt.publish((baseTopic + "pidD").c_str(),                 String(battery.heater.pidI).c_str());
+        mqtt.publish((baseTopic + "pidD").c_str(),                 String(battery.heater.pidD).c_str());
         mqtt.publish((baseTopic + "tempBoost").c_str(),            String(battery.tempBoost).c_str());
         mqtt.publish((baseTopic + "voltBoost").c_str(),            String(battery.voltBoost).c_str());
+     
         // Publish MQTT settings
-        mqtt.publish((baseTopic + "mqtt/enable").c_str(),         String(battery.mqtt.enable).c_str());
+        mqtt.publish((baseTopic + "mqtt/enable").c_str(),          String(battery.mqtt.enable).c_str());
         // Publish Telegram settings
-        // mqtt.publish((baseTopic + "telegram/enable/").c_str(), String(battery.telegram.enable).c_str());
+        mqtt.publish((baseTopic + "telegram/enable").c_str(),      String(battery.telegram.enable).c_str());
         // }
 }
 
