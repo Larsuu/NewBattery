@@ -5,7 +5,8 @@
 #include <string>
 #include <functional>
 #include <Preferences.h>
-#include <AsyncTelegram2.h>
+//#include <AsyncTelegram2.h>
+#include <WiFiClientSecure.h>
 
 #if defined(ESP32)
 #include <WiFi.h>
@@ -53,8 +54,8 @@
 Battery& batt = Battery::getInstance();
 
 
-AsyncTelegram2* bot;
-WiFiClient asiakas;  
+// AsyncTelegram2* bot;
+//WiFiClient asiakas;  
 
 int tempest;
 int batteryInSeries;
@@ -127,7 +128,6 @@ void textCallback(Control *sender, int type);
 void paramCallback(Control* sender, int type, int param);
 void generalCallback(Control *sender, int type);
 
-
 // Battery callbacks for Number input  --> Voltage
 void ecoVoltCallback(Control *sender, int type);
 void boostVoltCallback(Control *sender, int type);
@@ -160,29 +160,23 @@ void setup() {
 	  Serial.begin(115200);
     batt.loadSettings(ALL);
     
-
-
-
 #if defined(ESP32)
-    WiFi.setHostname(batt.battery.name.c_str());  // needs to be before setUpUI!!   
+   WiFi.setHostname(batt.battery.name.c_str());  // needs to be before setUpUI!!   
 #else
     WiFi.hostname(batt.battery.name.c_str());
 #endif
 	while(!Serial);
 	if(SLOW_BOOT) delay(5000); //Delay booting to give time to connect a serial monitor
-	connectWifi();
+	  connectWifi();
 	#if defined(ESP32)
-		WiFi.setSleep(true); //For the ESP32: turn off sleeping to increase UI responsivness (at the cost of power use)
+	  WiFi.setSleep(true); //For the ESP32: turn off sleeping to increase UI responsivness (at the cost of power use)
 	#endif
 	  setUpUI();
 }   
-
 void setUpUI() {
-
-  ESPUI.setVerbosity(Verbosity::Quiet);
+  ESPUI.setVerbosity(Verbosity::Verbose);
   ESPUI.captivePortal = true;
   ESPUI.sliderContinuous = false;
-  
     auto tab1 = ESPUI.addControl(Tab, "Info", "Info");
     auto tab2 = ESPUI.addControl(Tab, "Setup", "Setup");
     auto wifitab = ESPUI.addControl(Tab, "wifitab", "WiFi");
@@ -1175,6 +1169,19 @@ bool checkAndLogBoostState() {
     else return false;
 }
 
+/*
+void connectWifi() {
+  Serial.println("Connecting to WiFi...");
+  WiFi.begin(batt.battery.wlan.ssid.c_str(), batt.battery.wlan.pass.c_str());
+  if(WiFi.status() != WL_CONNECTED) {
+    Serial.println("Connecting to WiFi...");
+  }
+  Serial.println("Connected to WiFi");
+  WiFi.setHostname(batt.battery.name.c_str());
+}
+*/
+
+
 void connectWifi() {
 	int connect_timeout;
 
@@ -1224,6 +1231,7 @@ void connectWifi() {
 		} while(connect_timeout);
 	}
 }
+
 
 void textCallback(Control *sender, int type) {
 	//This callback is needed to handle the changed values, even though it doesn't do anything itself.

@@ -6,11 +6,11 @@
 
 // Forward declarations for state types
 enum VoltageState { 
-    LAST_RESORT             =   0,
-    LOW_VOLTAGE_WARNING     =   1,  
-    PROTECTED               =   2,
-    ECONOMY                 =   3,
-    BOOST                   =   4,  
+    LAST_RESORT             =   0,              // red
+    LOW_VOLTAGE_WARNING     =   1,              // yellow+red
+    PROTECTED               =   2,              // yellow_solid
+    ECONOMY                 =   3,              // Green_solid    
+    BOOST                   =   4,              // Green_blink
     VBOOST_RESET            =   5   
 };
 
@@ -115,14 +115,21 @@ public:
     // Nested struct for Telegram
     struct tg {
         bool        enable;         // Enable/disable Telegram
+        bool        setup;          // Telegram connected
         String      token;          // Telegram token
-        int         chatId;         // Telegram chat ID
+        uint32_t    chatId;         // Telegram chat ID
         uint32_t    lastMessageTime; // Last message time
+        String      chatIdStr;      // Telegram chat ID as string
+        
     } telegram;
 
     // Nested struct for sTune
     struct stune {
-        uint32_t    time;           // Last message time
+        uint32_t    timeNow;         // Last message time
+        uint32_t    lenTime;        // Measurement time
+        uint32_t    startTime;      // Measurement time in seconds
+        uint32_t    endTime;        // Measurement time in seconds
+
         float       inputSpan;      // Input span
         float       outputSpan;     // Output span
         float       outputStart;    // Output start
@@ -137,15 +144,15 @@ public:
         bool        run;            // Run/stop sTune
         bool        done;           // Done/not done sTune
         bool        error;          // Error/no error sTune
-    
+        
         float       pidInput;       // PID input
         float       pidOutput;      // PID output
         float       pidSetpoint;    // PID setpoint
     
-        float       pidP;           // PID P
-        float       pidI;           // PID I
+        float       pidP;          // PID P
+        float       pidI;          // PID I
         float       pidD;           // PID D
-        uint8_t     runTimes;         // lets avarage the runs of the PID
+        uint8_t     runTimes;      // lets avarage the runs of the PID
     } stune;
 
     struct adc {
@@ -196,9 +203,12 @@ public:
           wlan{false, "", "", 0}, // Initialize WiFi struct
           http{false, "", ""}, // Initialize HTTP struct
           mqtt{false, false, "", "", "", 1883, 0}, // Initialize MQTT struct
-          telegram{false, "", 0, 0}, // Initialize Telegram struct 
+          telegram{false,false, "", 0, 0, "922951523"}, // Initialize Telegram struct 
           stune{
-                5000,        // time: Last message time in milliseconds
+                0,              // timeNow
+                300,            // lenTime
+                60,             // startTime
+                1000,           // endTime 
                 40.0,       // inputSpan: Input span for tuning
                 100.0,      // outputSpan: Output span for tuning
                 0.0,        // outputStart: Initial output value
@@ -218,7 +228,8 @@ public:
                 0.0,        // pidP: Proportional gain for PID
                 0.0,        // pidI: Integral gain for PID
                 0.0,        // pidD: Derivative gain for PID
-                0           // runTimes: Number of times the tuning has run
+                1           // runtime: lets avarage the runs of the PID
+              
           },
           adc{0, 0, 0, 0, 0, 0, 5, {0, 0, 0, 0, 0}} // Initialize adc struct with correct types
     {}

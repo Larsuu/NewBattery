@@ -4,14 +4,14 @@
 #include <OneWire.h>
 #include <ESPUI.h>
 #include <sTune.h>
-#include <PubSubClient.h>
-#include <AsyncTelegram2.h>
 #include <WiFiClientSecure.h>
-// #include "TelegramBot.h"
 #include <cctype>
+#include <functional>
 #define DEBUG
 #define LOG_BUFFER 50
 #define LOGS_SIZE 10
+
+
 
 struct logEntry {
     int voltageState;
@@ -78,12 +78,14 @@ void Battery::loop() {
 
     handleBatteryControl();         // Logic for battery control
 
-    updateHeaterPID();              // PID calibration -> runtune()
+ //    updateHeaterPID();              // PID calibration -> runtune()
         runTune();
 
     controlHeaterPWM(battery.heater.pidOutput);
     
     handleMqtt();                   // handle mqtt loop & connection & enable
+
+    telegramming();                     // telegam oop and function
 
     red.blink();
     green.blink(); 
@@ -102,6 +104,7 @@ void Battery::runTune() {
         pinMode(heaterPin, OUTPUT);
         ledcDetachPin(heaterPin); // Detach PWM from heater pin
         tuner.softPwm(heaterPin, stune.pidInput, stune.pidOutput, stune.pidInput, stune.outputSpan, 0);
+        
 
             switch (tuner.Run()) {
                 case tuner.sample: // Active once per sample during test
@@ -110,6 +113,7 @@ void Battery::runTune() {
 
                 case tuner.tunings: // Active just once when sTune is done
                     tuner.GetAutoTunings(&stune.pidP, &stune.pidI, &stune.pidD); // Get tuned values
+
 
                     if ((tuner.GetTau() / tuner.GetDeadTime()) > 0.5) {
                         // Good tunability - complete the tuning process
@@ -130,35 +134,30 @@ void Battery::runTune() {
                         heater.pidD = stune.pidD;
                     }
                     else { 
-                        for(int i =1; i < 6; i++) {
-                              if (stune.run) {
-                                  stune.outputStep += constrain(255 / i, 50, 255); // Ensure it stays within bounds
-                                  stune.testTimeSec += constrain(300 / i, 60, 360); // Ensure it stays within bounds
-                                  stune.samples = stune.testTimeSec;
-                              }
-                        }
+                        
+                        for (stune.runTimes = 0; stune.runTimes < 5; stune.runTimes++) {
+                            Serial.print("Tuning: ");
+                            Serial.println(battery.stune.runTimes + 1);
 
-                        // Check tunability conditions
-                        if ((tuner.GetTau() / tuner.GetDeadTime()) <= 0.5 || 
-                            tuner.GetKp() < 1 || tuner.GetKp() > 100) {
-                            stune.error = true;
-                            stune.done = false;
-                        } else {
-                            stune.error = false;
-                            stune.done = true;
-                        }
+                            stune.outputStep += constrain((255 / 5), 50, 255); // Ensure it stays within bounds
+                            stune.testTimeSec += constrain((300 / 5), 60, 360); // Ensure it stays within bounds
+                            stune.samples = stune.testTimeSec;
+                              
 
-                        // Reconfigure tuner with new parameters
-                        tuner.Configure(
-                            battery.stune.inputSpan,
-                            battery.stune.outputSpan,
-                            battery.stune.outputStart,
-                            battery.stune.outputStep,
-                            battery.stune.testTimeSec,
-                            battery.stune.settleTimeSec,
-                            battery.stune.samples
-                        );
-                    }
+                            // Reconfigure tuner with new parameters
+                            tuner.Configure(
+                                battery.stune.inputSpan,
+                                battery.stune.outputSpan,
+                                battery.stune.outputStart,
+                                battery.stune.outputStep,
+                                battery.stune.testTimeSec,
+                                battery.stune.settleTimeSec,
+                                battery.stune.samples );
+
+                                break; // Exit the loop if tuning is successful
+                            }                        
+                        }
+                    
 
                     // Debug output
                     Serial.println("Tunings");
@@ -177,6 +176,7 @@ void Battery::runTune() {
                     Serial.println(stune.pidI);
                     Serial.print("stune pidD: ");
                     Serial.println(stune.pidD);
+
                     break;
 
                 case tuner.runPid:
@@ -385,18 +385,18 @@ void Battery::handleBatteryControl() {
         @return: VoltageState enum
 */
 VoltageState Battery::getVoltageState(int voltagePrecent) {
-    if ( voltagePrecent < 10) {
-        return LAST_RESORT;  
-    } else if (voltagePrecent >= 10 && voltagePrecent < 20) {
-        return LAST_RESORT;                                                             // Lets shut all down
-    } else if (voltagePrecent >= 20 && voltagePrecent < 30) {
-        return LOW_VOLTAGE_WARNING;                                                     // lets warn the user with leds and even lower P value
-    } else if (voltagePrecent >= 30 && voltagePrecent < 50) {
-        return PROTECTED;                                                               // lets protect the battery by lowering the P term
-    } else if (voltagePrecent >= 50 && voltagePrecent < battery.ecoVoltPrecent) {
-        return ECONOMY;                                                                                     // Normal operation
-    } else if (voltagePrecent >= battery.ecoVoltPrecent && voltagePrecent < battery.boostVoltPrecent) {
-        return BOOST;                                                                    // above economy voltage, in the wanted boost area
+    if ( voltagePrecent < 10) {                                                                             // red_solid
+        return LAST_RESORT;                                                             
+    } else if (voltagePrecent >= 10 && voltagePrecent < 20) {                                               // red_solid
+        return LAST_RESORT;                                                               
+    } else if (voltagePrecent >= 20 && voltagePrecent < 30) {                                               // Yellow_blink
+        return LOW_VOLTAGE_WARNING;                                                     
+    } else if (voltagePrecent >= 30 && voltagePrecent < 50) {                                               // Yellow_solid
+        return PROTECTED;                                                             
+    } else if (voltagePrecent >= 50 && voltagePrecent < battery.ecoVoltPrecent) {                           // Green_solid
+        return ECONOMY;                                                                                     
+    } else if (voltagePrecent >= battery.ecoVoltPrecent && voltagePrecent < battery.boostVoltPrecent) {     // Green_blink
+        return BOOST;                                                                   
     } else if (voltagePrecent >= battery.boostVoltPrecent && voltagePrecent > 99) {
         return VBOOST_RESET;  // Add boost reset state
     } else {                                                                             
@@ -1155,7 +1155,9 @@ bool Battery::getChargerStatus() {
     return battery.chrgr.enable;
 }
 
+
 void Battery::publishBatteryData() {
+    #ifdef MQTT_ENABLED
         String baseTopic = "battery/" + String(battery.name) + "/";
         mqtt.publish((baseTopic + "size").c_str(),                 String(battery.size).c_str());
         mqtt.publish((baseTopic + "temperature").c_str(),          String(battery.temperature).c_str());
@@ -1179,9 +1181,11 @@ void Battery::publishBatteryData() {
         // Publish Telegram settings
         mqtt.publish((baseTopic + "telegram/enable").c_str(),      String(battery.telegram.enable).c_str());
         // }
+        #endif
 }
 
 void Battery::mqttSetup() {
+    #ifdef MQTT_ENABLED
     preferences.begin("btry", true);
         battery.mqtt.enable     = preferences.getBool("mqtten");
         battery.mqtt.server     = preferences.getString("mqttip");
@@ -1191,9 +1195,12 @@ void Battery::mqttSetup() {
     preferences.end();
     mqtt.setServer(battery.mqtt.server.c_str(), uint16_t(battery.mqtt.port));
     battery.mqtt.setup = true;
+    #endif
 }
 
 void Battery::handleMqtt() {
+    #ifdef MQTT_ENABLED
+    
     if(!battery.mqtt.setup)  mqttSetup();
 
     if(battery.mqtt.enable) { 
@@ -1207,10 +1214,14 @@ void Battery::handleMqtt() {
             else WiFi.reconnect();
         }
     }
+
+    #endif
 }
 
 bool Battery::getMqttState() {
-    return battery.mqtt.enable; }
+    return battery.mqtt.enable; 
+
+}
 
 bool Battery::setMqttState(bool status) {
     if (status) {
@@ -1252,4 +1263,26 @@ bool Battery::setHttpEn(bool status) {
         return false;
     }
 }
+
+void Battery::telegramming() {
+    #ifdef TELEGRAM_ENABLED
+    // Check if Telegram notifications are enabled
+
+    if (battery.telegram.enable && millis() > 10000) {
+
+    if(WiFi.isConnected()) {
+        telegramBot.sendMessage(String(battery.telegram.chatIdStr), "Hello World!");
+    }
+    else {
+        WiFi.begin(battery.wlan.ssid.c_str(), battery.wlan.pass.c_str());
+        Serial.println("WiFi is not connected. Attempting to reconnect...");
+        Serial.println(WiFi.status());
+    }
+}
+
+#endif
+}
+
+
+
 

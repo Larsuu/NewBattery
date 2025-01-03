@@ -2,6 +2,7 @@
 #define BATTERY_H
 
 
+#include <PubSubClient.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <QuickPID.h>
@@ -12,17 +13,23 @@
 #include <ArduinoJson.h>
 #include <sTune.h>
 #include <WiFi.h>
-#include <PubSubClient.h>
-#include <AsyncTelegram2.h>
-#include <WiFiClientSecure.h>
+#include <UniversalTelegramBot.h>
 #include <time.h>
-// #include "TelegramBot.h"
 #include <cctype>
 #include <WiFiClient.h>
 #include "BatteryState.h"
 #include <esp_adc_cal.h>
+#include <WiFiClientSecure.h>
 
+
+
+//              PROPERTIES!!
+/* ______________________________________ */
+#define MQTT_ENABLED
 #define VERSION_2
+// #define TELEGRAM_ENABLED
+
+
 
 // old hardware version (just few old prototype boards  -- not in public use)
 #ifdef VERSION_1
@@ -58,7 +65,7 @@
 #define ADC_CHANNEL ADC1_CHANNEL_3
 #define ADC_ATTEN ADC_ATTEN_DB_11
 
-//class TelegramBot;  // forward declaration lazy load.
+#define MYTZ "EET-2EEST-3,M3.5.0/03:00:00,M10.5.0/04:00:00"
 
 // Add this enum definition before the Battery class
 enum SettingsType {
@@ -89,19 +96,6 @@ public:
     // Add batteryState as a public member
     batteryState battery;
 
-    /*
-        esp_adc_cal_characteristics_t characteristics;
-        adc1_config_width(ADC_WIDTH_12Bit);
-        adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
-        esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH_BIT_12, V_REF, &characteristics);
-    */
-    // Global variables for telegram
-    const char* MYTZ = "EET-2EEST,M3.5.0/3,M10.5.0/4"; 
-
-    const char* mqttID = "bj";
-    const char* mqttUser = "mosku";
-    const char* mqttPassword = "kurkku123";
-
     unsigned long currentMillis = 0;
     unsigned long voltageMillis = 0;
     unsigned long heaterMillis = 0;
@@ -120,8 +114,6 @@ public:
     bool setup_done = false;
     unsigned long dallasTime = 0;
 
-    // telegram
-    uint32_t tgLoop = 0;
 
     // PID variables
     float pidInput, pidOutput, pidSetpoint;
@@ -129,17 +121,14 @@ public:
     float ki = 0.02;
     float kd = 0.02;
 
-    // float ap = 100;
-    // float ai = 75;
-    // float ad = 0;
-
     void loop();
     void setup();
 
+      
      VoltageState getVoltageState(int voltagePrecent);
      TempState getTempState(float temperature);
  
-     void initBot(WiFiClient& client);
+    //void initBot(WiFiClient& client);
     //bool telegramEnabled = true; // Flag to enable Telegram bot
 
     void readTemperature();
@@ -215,6 +204,8 @@ public:
     bool getTelegramEn();
     bool setTelegramEn(bool status);
 
+    void telegramming();
+
     bool getHttpEn();
     bool setHttpEn(bool status);
 
@@ -222,7 +213,6 @@ public:
 
     Preferences preferences;
 
-        // LED blinkers
 
 
  private:
@@ -239,13 +229,19 @@ public:
         : battery(),
           oneWire(tempSensor),
           dallas(&oneWire),
-          mqtt(espClient),
           heaterPID(&battery.heater.pidInput, &battery.heater.pidOutput, &battery.heater.pidSetpoint, kp, ki, kd, QuickPID::Action::direct),
           tuner(&battery.stune.pidInput, &battery.stune.pidOutput, tuner.ZN_PID, tuner.directIP, tuner.printALL),
           red(redLed),
           green(greenLed),
-          yellow(yellowLed)
+          yellow(yellowLed),
+          telegramBot(String(battery.telegram.token), client),
+          mqtt(espClient)
     {
+
+        // WiFi.begin(battery.wlan.ssid.c_str(), battery.wlan.pass.c_str());
+        //Serial.println(WiFi.status());
+        //WiFi.setHostname(battery.name.c_str());
+        
         adc1_config_width(ADC_WIDTH_12Bit);
         adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
         esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH_BIT_12, V_REF, &characteristics);
@@ -264,6 +260,18 @@ public:
 
         tuner.Configure(battery.stune.inputSpan, battery.stune.outputSpan, battery.stune.outputStart, battery.stune.outputStep, battery.stune.testTimeSec, battery.stune.settleTimeSec, battery.stune.samples);
         tuner.SetEmergencyStop(battery.stune.tempLimit);
+
+        // client.setInsecure();
+        // telegramBot.setUpdateTime(2000);
+        // telegramBot.setTelegramToken(battery.telegram.token.c_str());
+        // telegramBot.begin() ? Serial.println("OK") : Serial.println("NOK");
+        #ifdef TELEGRAM_ENABLED
+        client.setInsecure();
+        #endif
+
+
+
+
     }
     
     Blinker red;
@@ -286,9 +294,13 @@ public:
     // LAN remote control and monitoring
     WiFiClient espClient;
     PubSubClient mqtt;
-    String mqttTopic;
+    //String mqttTopic;
 
-    //TelegramBot* telegramBot = nullptr;
+    WiFiClientSecure client;
+    UniversalTelegramBot telegramBot;
+
+    float lastVoltage = 0.0;
+    float lastTemperature = 0.0;
 
     esp_adc_cal_characteristics_t characteristics;
 };
