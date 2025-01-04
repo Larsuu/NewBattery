@@ -13,13 +13,13 @@
 #include <ArduinoJson.h>
 #include <sTune.h>
 #include <WiFi.h>
-#include <UniversalTelegramBot.h>
 #include <time.h>
 #include <cctype>
 #include <WiFiClient.h>
 #include "BatteryState.h"
 #include <esp_adc_cal.h>
 #include <WiFiClientSecure.h>
+#include <HTTPClient.h>
 
 
 
@@ -114,7 +114,6 @@ public:
     bool setup_done = false;
     unsigned long dallasTime = 0;
 
-
     // PID variables
     float pidInput, pidOutput, pidSetpoint;
     float kp = 1.0;
@@ -124,12 +123,8 @@ public:
     void loop();
     void setup();
 
-      
      VoltageState getVoltageState(int voltagePrecent);
      TempState getTempState(float temperature);
- 
-    //void initBot(WiFiClient& client);
-    //bool telegramEnabled = true; // Flag to enable Telegram bot
 
     void readTemperature();
     void handleBatteryControl();    // Main control logic for battery
@@ -192,7 +187,7 @@ public:
     bool getHostname();
 
     void updateHeaterPID();
-    void controlHeaterPWM(uint8_t dutycycle);
+    void controlHeaterPWM();
 
     void publishBatteryData();
 
@@ -204,16 +199,14 @@ public:
     bool getTelegramEn();
     bool setTelegramEn(bool status);
 
-    void telegramming();
-
     bool getHttpEn();
     bool setHttpEn(bool status);
 
     bool isValidHostname(const String& hostname);
 
+    bool telegramSendMessage(const char *message);
+
     Preferences preferences;
-
-
 
  private:
 
@@ -229,12 +222,10 @@ public:
         : battery(),
           oneWire(tempSensor),
           dallas(&oneWire),
-          heaterPID(&battery.heater.pidInput, &battery.heater.pidOutput, &battery.heater.pidSetpoint, kp, ki, kd, QuickPID::Action::direct),
+          heaterPID(&battery.heater.pidInput, &battery.heater.pidOutput, &battery.heater.pidSetpoint, battery.heater.pidP, battery.heater.pidI, battery.heater.pidD, QuickPID::Action::direct),
           tuner(&battery.stune.pidInput, &battery.stune.pidOutput, tuner.ZN_PID, tuner.directIP, tuner.printALL),
-          red(redLed),
           green(greenLed),
           yellow(yellowLed),
-          telegramBot(String(battery.telegram.token), client),
           mqtt(espClient)
     {
 
@@ -247,7 +238,7 @@ public:
         esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH_BIT_12, V_REF, &characteristics);
 
         heaterPID.SetMode(QuickPID::Control::manual);
-        heaterPID.SetOutputLimits(0, 25);
+        heaterPID.SetOutputLimits(0, 2);
 
         green.start();
         green.setDelay(1000);
@@ -255,8 +246,8 @@ public:
         yellow.start();
         yellow.setDelay(1000);
 
-        red.start();
-        red.setDelay(1000, 0);
+        // red.start();
+        // red.setDelay(1000, 0);
 
         tuner.Configure(battery.stune.inputSpan, battery.stune.outputSpan, battery.stune.outputStart, battery.stune.outputStep, battery.stune.testTimeSec, battery.stune.settleTimeSec, battery.stune.samples);
         tuner.SetEmergencyStop(battery.stune.tempLimit);
@@ -269,12 +260,8 @@ public:
         client.setInsecure();
         #endif
 
-
-
-
     }
     
-    Blinker red;
     Blinker green;
     Blinker yellow;
 
@@ -295,9 +282,6 @@ public:
     WiFiClient espClient;
     PubSubClient mqtt;
     //String mqttTopic;
-
-    WiFiClientSecure client;
-    UniversalTelegramBot telegramBot;
 
     float lastVoltage = 0.0;
     float lastTemperature = 0.0;

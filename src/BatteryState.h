@@ -140,7 +140,7 @@ public:
         float       tempLimit;      // Temperature limit
     
         bool        enable;         // Enable/disable sTune
-        bool        firstRunPID;    // First run PID
+        bool        firstRun;    // First run PID
         bool        run;            // Run/stop sTune
         bool        done;           // Done/not done sTune
         bool        error;          // Error/no error sTune
@@ -203,11 +203,11 @@ public:
           wlan{false, "", "", 0}, // Initialize WiFi struct
           http{false, "", ""}, // Initialize HTTP struct
           mqtt{false, false, "", "", "", 1883, 0}, // Initialize MQTT struct
-          telegram{false,false, "", 0, 0, "922951523"}, // Initialize Telegram struct 
+          telegram{false,false, "", 922951523, 0, "922951523"}, // Initialize Telegram struct 
           stune{
                 0,              // timeNow
-                300,            // lenTime
-                60,             // startTime
+                200,            // lenTime
+                0,             // startTime
                 1000,           // endTime 
                 40.0,       // inputSpan: Input span for tuning
                 100.0,      // outputSpan: Output span for tuning
@@ -217,8 +217,9 @@ public:
                 10,         // settleTimeSec: Settle time for the tuning process
                 60,         // samples: Number of samples to collect
                 40.0,       // tempLimit: Temperature limit for tuning
-                true,       // enable: Flag to enable/disable sTune
-                true,       // firstRunPID: Flag for the first run of PID tuning
+
+                false,       // enable: Flag to enable/disable sTune
+                false,       // firstRunPID: Flag for the first run of PID tuning
                 false,      // run: Flag indicating if tuning is currently running
                 false,      // done: Flag indicating if tuning is complete
                 false,      // error: Flag indicating if there was an error during tuning

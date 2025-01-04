@@ -34,7 +34,7 @@ Battery::~Battery() {
     // Stop PWM
     ledcDetachPin(heaterPin);
     // Turn off LEDs
-    red.stop();
+    //red.stop();
     yellow.stop();
     green.stop();
 }
@@ -43,13 +43,13 @@ void Battery::setup() {
 
         pinMode(chargerPin, OUTPUT);
         pinMode(heaterPin, OUTPUT);
-        pinMode(redLed, OUTPUT);
+        //pinMode(redLed, OUTPUT);
         pinMode(greenLed, OUTPUT);
         pinMode(yellowLed, OUTPUT);
 
         digitalWrite(heaterPin, LOW);
         digitalWrite(chargerPin, LOW);
-        digitalWrite(redLed, LOW);
+        // digitalWrite(redLed, LOW);
         digitalWrite(greenLed, LOW);
         digitalWrite(yellowLed, LOW);
 
@@ -64,8 +64,8 @@ void Battery::setup() {
         yellow.start();
         yellow.setDelay(1000);
 
-        red.start();
-        red.setDelay(1000, 2000);
+        // red.start();
+        // red.setDelay(1000, 2000);
 
     loadSettings(ALL);
 }
@@ -78,31 +78,59 @@ void Battery::loop() {
 
     handleBatteryControl();         // Logic for battery control
 
- //    updateHeaterPID();              // PID calibration -> runtune()
-        runTune();
+    updateHeaterPID();              // PID calibration -> runtune()
 
-    controlHeaterPWM(battery.heater.pidOutput);
+    controlHeaterPWM();
     
     handleMqtt();                   // handle mqtt loop & connection & enable
 
-    telegramming();                     // telegam oop and function
-
-    red.blink();
     green.blink(); 
     yellow.blink();  
+    // red.blink();
 
 }  // end loop
 
+/*
+    the QuickPID Wrapping Function, executed every second. 
+*/
+void Battery::updateHeaterPID() {
+
+    if(battery.stune.enable) {
+
+        // boostButtonPress_Time + lenght_stuneRunTime is greater than current time
+        if(battery.stune.startTime + (battery.stune.lenTime * 1000)  > millis()) {
+
+            runTune();
+        }
+        else return;
+    }
+    else return;
+}
+
+
+
+
+
+
+
+
 void Battery::runTune() {
-    if (battery.stune.firstRunPID && millis() >= 120000) {
-        if(!battery.stune.run) battery.stune.run = true; 
+    if (!battery.stune.done) {
+        // if(!battery.stune.run) battery.stune.run = true; 
        
-        auto& stune = battery.stune; // Reference to the existing stune
+
+        auto& stune = battery.stune; // Reference to the existing stune        auto& stune = battery.stune; // Reference to the existing stune
         auto& heater = battery.heater;
 
+
+        if(!stune.firstRun) {
         // Initialize pin modes for tuning
         pinMode(heaterPin, OUTPUT);
+        heaterPID.SetMode(QuickPID::Control::manual);
         ledcDetachPin(heaterPin); // Detach PWM from heater pin
+        stune.firstRun = true;
+       }
+
         tuner.softPwm(heaterPin, stune.pidInput, stune.pidOutput, stune.pidInput, stune.outputSpan, 0);
         
 
@@ -117,8 +145,6 @@ void Battery::runTune() {
 
                     if ((tuner.GetTau() / tuner.GetDeadTime()) > 0.5) {
                         // Good tunability - complete the tuning process
-                        stune.firstRunPID = false;
-                        stune.run = false;
                         stune.done = true;
                         stune.error = false;
 
@@ -127,11 +153,16 @@ void Battery::runTune() {
                         heaterPID.SetMode(QuickPID::Control::automatic);
                         heaterPID.SetProportionalMode(QuickPID::pMode::pOnMeas);
                         heaterPID.SetAntiWindupMode(QuickPID::iAwMode::iAwClamp);
-                        heaterPID.SetTunings(stune.pidP, stune.pidI, stune.pidD);
+                       
                         
                         heater.pidP = stune.pidP;
                         heater.pidI = stune.pidI;
                         heater.pidD = stune.pidD;
+
+                        heaterPID.SetTunings(battery.heater.pidP, battery.heater.pidI, battery.heater.pidD);
+
+                        ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
+                        ledcAttachPin(heaterPin, PWM_CHANNEL);
                     }
                     else { 
                         
@@ -143,7 +174,6 @@ void Battery::runTune() {
                             stune.testTimeSec += constrain((300 / 5), 60, 360); // Ensure it stays within bounds
                             stune.samples = stune.testTimeSec;
                               
-
                             // Reconfigure tuner with new parameters
                             tuner.Configure(
                                 battery.stune.inputSpan,
@@ -160,6 +190,7 @@ void Battery::runTune() {
                     
 
                     // Debug output
+                    /*
                     Serial.println("Tunings");
                     Serial.print("tunability: ");
                     Serial.println(tuner.GetTau() / tuner.GetDeadTime());
@@ -176,6 +207,7 @@ void Battery::runTune() {
                     Serial.println(stune.pidI);
                     Serial.print("stune pidD: ");
                     Serial.println(stune.pidD);
+                    */
 
                     break;
 
@@ -186,16 +218,10 @@ void Battery::runTune() {
     }
 }
 /*
-    the QuickPID Wrapping Function, executed every second. 
-*/
-void Battery::updateHeaterPID() {
-    if(battery.stune.enable) runTune();
-}
-/*
     Control the PWM with updateHeaterPID function
 */
-void Battery::controlHeaterPWM(uint8_t dutyCycle) {
-       if(battery.heater.enable) {
+void Battery::controlHeaterPWM() {
+       if(battery.stune.done) {
         heaterPID.Compute();
         ledcWrite(PWM_CHANNEL, battery.heater.pidOutput);
        }
@@ -220,6 +246,8 @@ void Battery::readTemperature() {
         else {
             battery.temperature = temperature;
             battery.stune.pidInput = temperature;
+            battery.heater.pidInput = temperature;
+            //telegramSendMessage(String(temperature).c_str());
         }
     }
 }
@@ -246,14 +274,14 @@ void Battery::handleBatteryControl() {
                     if(battery.tState != SUBZERO && battery.tState != TEMP_WARNING) 
                         {
                             charger(true); 
-                            red.setDelay(1000, 1000);
+                            // red.setDelay(1000, 1000);
                             yellow.setDelay(1000, 0);
                             green.setDelay(1000, 0);
                         }
                     else 
                         { 
                             charger(false);
-                            red.setDelay(0, 1000);
+                            // red.setDelay(0, 1000);
                         }
                 break;
             case LOW_VOLTAGE_WARNING:
@@ -262,7 +290,7 @@ void Battery::handleBatteryControl() {
                     if(battery.tState != SUBZERO && battery.tState != TEMP_WARNING) 
                         { 
                             charger(true); 
-                            red.setDelay(1000);
+                            //red.setDelay(1000);
                             yellow.setDelay(1000);
                             green.setDelay(1000, 0);
                             
@@ -270,11 +298,11 @@ void Battery::handleBatteryControl() {
                     else 
                         { 
                             charger(false); 
-                            red.setDelay(0, 1000);
+                            //red.setDelay(0, 1000);
                         }
                 break;
             case PROTECTED:
-                    red.setDelay(1000, 0);
+                    // red.setDelay(1000, 0);
                     yellow.setDelay(1000);
                     green.setDelay(1000, 0);
 
@@ -284,7 +312,7 @@ void Battery::handleBatteryControl() {
 
                 break;
             case ECONOMY:
-                    red.setDelay(1000, 0);
+                    // red.setDelay(1000, 0);
                     yellow.setDelay(1000, 0);
                     green.setDelay(0, 1000);
                     
@@ -295,7 +323,7 @@ void Battery::handleBatteryControl() {
 
                 break;
             case BOOST:
-                    red.setDelay(1000, 0);
+                    //red.setDelay(1000, 0);
                     yellow.setDelay(1000, 0);
                     green.setDelay(1000);
 
@@ -307,7 +335,7 @@ void Battery::handleBatteryControl() {
                         { charger(false); }
                 break;
             case VBOOST_RESET:
-                    red.setDelay(1000, 0);
+                    // red.setDelay(1000, 0);
                     yellow.setDelay(1000, 0);
                     green.setDelay(500);
 
@@ -324,22 +352,22 @@ void Battery::handleBatteryControl() {
 
     switch (battery.tState) {
             case SUBZERO:
-                    red.setDelay(0, 1000);
+                    // red.setDelay(0, 1000);
                     charger(false);
 
                  break;
             case ECO_TEMP:
-                    if(battery.tempBoost) { battery.wantedTemp = battery.heater.boostTemp; }
-                    else { battery.wantedTemp = battery.heater.ecoTemp; }
+                    if(battery.tempBoost) { battery.heater.pidSetpoint = battery.heater.boostTemp; }
+                    else { battery.heater.pidSetpoint = battery.heater.ecoTemp; }
 
                 break;
             case BOOST_TEMP:
-                    if(battery.tempBoost) { battery.wantedTemp = battery.heater.boostTemp; }
-                    else { battery.wantedTemp = battery.heater.ecoTemp; }
+                    if(battery.tempBoost) { battery.heater.pidSetpoint = battery.heater.boostTemp; }
+                    else { battery.heater.pidSetpoint = battery.heater.ecoTemp; }
 
                 break;
             case OVER_TEMP:
-                    battery.wantedTemp = battery.heater.ecoTemp;
+                    battery.heater.pidSetpoint = battery.heater.ecoTemp;
                     battery.tempBoost = false;
 
                  break;
@@ -349,12 +377,12 @@ void Battery::handleBatteryControl() {
 
                 break;
             case TBOOST_RESET:
-                    battery.wantedTemp = battery.heater.ecoTemp;
+                    battery.heater.pidSetpoint = battery.heater.ecoTemp;
                     battery.tempBoost = false;
 
                 break;
            case DEFAULT_TEMP:
-                    battery.wantedTemp = 0;
+                    battery.heater.pidSetpoint = 0;
 
                 break;
             default:
@@ -918,8 +946,9 @@ bool Battery::activateTemperatureBoost(bool tempBoost) {
             battery.tempBoost = true;
             preferences.putBool("tboost", true);
             preferences.end(); // Close preferences
+            battery.stune.enable = true;
+            battery.stune.startTime = millis();
             return true;
-            runTune();
     }
     else if(!tempBoost ) {
         if(preferences.begin("btry", false))
@@ -1155,7 +1184,6 @@ bool Battery::getChargerStatus() {
     return battery.chrgr.enable;
 }
 
-
 void Battery::publishBatteryData() {
     #ifdef MQTT_ENABLED
         String baseTopic = "battery/" + String(battery.name) + "/";
@@ -1264,22 +1292,25 @@ bool Battery::setHttpEn(bool status) {
     }
 }
 
-void Battery::telegramming() {
-    #ifdef TELEGRAM_ENABLED
-    // Check if Telegram notifications are enabled
-
-    if (battery.telegram.enable && millis() > 10000) {
-
-    if(WiFi.isConnected()) {
-        telegramBot.sendMessage(String(battery.telegram.chatIdStr), "Hello World!");
-    }
-    else {
-        WiFi.begin(battery.wlan.ssid.c_str(), battery.wlan.pass.c_str());
-        Serial.println("WiFi is not connected. Attempting to reconnect...");
-        Serial.println(WiFi.status());
-    }
-}
-
+bool Battery::telegramSendMessage(const char *message) {
+#ifdef TELEGRAM_ENABLED
+  WiFiClientSecure client;
+  HTTPClient https;
+  bool result = false;
+  client.setInsecure();
+  if (https.begin(client, String("https://api.telegram.org/bot") + String(battery.telegram.token) + "/")) {
+    String post;
+    https.addHeader("Content-Type", "application/json");
+    https.addHeader("Connection", "close");
+    post = "{\"method\":\"sendMessage\",\"chat_id\":" + String(battery.telegram.chatIdStr) + ",\"text\":\"" + message + "\"}";
+    //Serial.println(">> " + post);
+    result = https.POST(post) == 200;
+    // Serial.println("<< " + https.getString());
+    https.end();
+  }
+  return result;
+#else
+    return false;
 #endif
 }
 
