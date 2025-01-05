@@ -5,7 +5,7 @@
 #include <Arduino.h> // Include necessary libraries
 
 // Forward declarations for state types
-enum VoltageState { 
+enum VoltageState {
     ALERT,                  // =   0,              // red
     WARNING,                 // =   1,              // yellow+red
     LOVV,                     // =   2,              // yellow_solid
@@ -52,13 +52,23 @@ public:
     bool            firstRun;            // Flag for first run
     uint32_t        lastMessageTime;     // Last message time
     uint8_t         sizeApprx;           // Approximate size
-
+    uint32_t        stateMachine;        // State machine
+    bool            starUpInit;          // Startup init
     // Nested struct for charger
     struct charger {
         uint8_t     current;        // Charger current
         bool        enable;         // Enable/disable charger
         uint32_t    time;           // Last message time
+        bool        startupSave;    // Startup save
     } chrgr;
+
+    struct startup {
+        bool        startupSave;    // Startup save
+        bool        buttonSave;     // Button time
+        uint32_t    time;           // Last message time
+        uint32_t    startupTimer;   // Startup timer
+        uint32_t    buttonTime;
+    } startup;
 
     // Nested struct for timer
     struct timer {
@@ -66,6 +76,7 @@ public:
         uint32_t    voltFet;        // Voltage FET time
         uint32_t    tempMillis;     // Temperature measurement time
         uint32_t    heaterMillis;   // Heater control time
+        uint32_t    startupTimer;     // Charge time
     } timer;
 
     // Nested struct for heater
@@ -193,7 +204,7 @@ public:
           lastMessageTime(0),
           sizeApprx(0),
           chrgr{1, false, 0}, // Initialize charger struct
-          timer{0, 0, 0, 0}, // Initialize timer struct
+          timer{0, 0, 0, 0, 5000}, // Initialize timer struct
           heater{
               0,    // time
               0,    // runTimes 
@@ -217,6 +228,7 @@ public:
           http{false, "", ""}, // Initialize HTTP struct
           mqtt{false, false, "", "", "", 1883, 0}, // Initialize MQTT struct
           telegram{false,false, "", 922951523, 0, "922951523"}, // Initialize Telegram struct 
+          startup{false, false, 0, 10000, 0}, // Initialize startup struct
           stune{
                 0,              // timeNow
                 250,            // lenTime
@@ -247,7 +259,8 @@ public:
                 1           // runtime: lets avarage the runs of the PID
               
           },
-          adc{0, 0, 0, 0, 0, 0, 5, {0, 0, 0, 0, 0}} // Initialize adc struct with correct types
+          adc{0, 0, 0, 0, 0, 0, 5, {0, 0, 0, 0, 0}}, // Initialize adc struct with correct types
+          starUpInit(false)
     {}
 
 };

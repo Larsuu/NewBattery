@@ -126,6 +126,7 @@ public:
     bool init();
     void batteryInit();
     void resetSettings(bool reset);
+    void startUpInit();
 
 
      VoltageState getVoltageState(int voltagePrecent);
@@ -222,6 +223,7 @@ public:
     const int greenLed = GREEN_LED;
     const int yellowLed = YELLOW_LED;
     const int redLed = RED_LED;
+    const int saveButton = GPIO_NUM_0;
 
     Battery() 
         : battery(),
@@ -264,6 +266,8 @@ public:
         #endif
 
     }
+
+    
     
     Blinker green;
     Blinker yellow;

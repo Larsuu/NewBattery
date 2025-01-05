@@ -46,11 +46,12 @@ void Battery::setup() {
         pinMode(redLed, OUTPUT);
         pinMode(greenLed, OUTPUT);
         pinMode(yellowLed, OUTPUT);
+        pinMode(saveButton, INPUT_PULLUP);
 
         digitalWrite(heaterPin, LOW);
         digitalWrite(chargerPin, LOW);
-        digitalWrite(redLed, HIGH);
-        digitalWrite(greenLed, HIGH);
+        digitalWrite(redLed, LOW);
+        digitalWrite(greenLed, LOW);
         digitalWrite(yellowLed, LOW);
 
         dallas.begin();
@@ -72,27 +73,28 @@ void Battery::setup() {
 
 void Battery::loop() {
 
-
-
-    readTemperature();              // Temperature reading
-
-    readVoltage(5000);                 // Voltage reading
-
-    handleBatteryControl();         // Logic for battery control
-
-    handleMqtt();  
-
-    green.blink(); 
-    yellow.blink();  
-    // red.blink();
-
-    if(init())
-    {
-        updateHeaterPID();              // PID calibration -> runtune()
-
-        controlHeaterPWM();
-
+    
+    if(!battery.starUpInit) {
+        readVoltage(50);                 // Voltage reading
+        startUpInit();
     }
+    else {
+        readVoltage(1000);
+        readTemperature();              // Temperature reading
+        handleBatteryControl();         // Logic for battery control
+        handleMqtt();  
+        green.blink(); 
+        yellow.blink();  
+        // red.blink();
+
+        if(init())
+        {
+            updateHeaterPID();              // PID calibration -> runtune()
+            controlHeaterPWM();
+        }
+    }
+
+
 }  // end loop
 
 
@@ -123,6 +125,51 @@ void Battery::batteryInit() {
         }
 }
 
+void Battery::startUpInit() {
+    if (!battery.startup.startupSave) {     
+        while(battery.timer.startupTimer > millis()) {
+            digitalWrite(redLed, LOW);
+            digitalWrite(greenLed, HIGH);
+            digitalWrite(yellowLed, HIGH);
+        // Check if the button is pressed
+        if (digitalRead(saveButton) == LOW) {
+            // If this is the first time the button is pressed
+            if (!battery.startup.buttonSave) {
+                battery.startup.buttonTime = millis(); // Record the time the button was pressed
+                battery.startup.buttonSave = true; // Set the button pressed flag
+            } else {
+                // Check if the button has been pressed for at least 500ms
+                if (millis() - battery.startup.buttonTime >= 500) {
+                    // Button has been pressed long enough
+                    battery.chrgr.startupSave = true;
+                        digitalWrite(redLed, HIGH);
+                        digitalWrite(yellowLed, LOW);
+                        digitalWrite(greenLed, HIGH);
+                    // Determine battery size and save it
+                    battery.size = uint8_t(determineBatterySeries(battery.milliVoltage));
+
+                    if (battery.size == battery.sizeApprx) {
+                        preferences.begin("btry", false);
+                        preferences.putUChar("size", battery.size);
+                        preferences.end();
+                        // battery.timer.startupTimer = millis() + 10000; // Reset the startup timer
+                        digitalWrite(redLed, HIGH);
+                        digitalWrite(yellowLed, HIGH);
+                        green.setDelay(150);
+                        green.blink();
+                        Serial.println("Startup save success");
+                        battery.startup.startupSave = true; // Set the flag to true so we'll block our loop. Onetime use only!
+                    }
+                }
+            }
+        } else {
+            // Button is not pressed
+            battery.startup.buttonSave = false; // Reset the button pressed flag
+        }
+    }
+    battery.starUpInit = true;
+    }
+}
 /*
     the QuickPID Wrapping Function, executed every second. 
 */
@@ -259,7 +306,7 @@ void Battery::controlHeaterPWM() {
 */
 void Battery::readTemperature() {
 
-    if (millis() - dallasTime  >= 1000) {
+    if (millis() - dallasTime  >= 1500) {
         dallasTime = millis();
         dallas.requestTemperatures();
         float temperature = dallas.getTempCByIndex(0);
@@ -279,9 +326,10 @@ void Battery::readTemperature() {
 }
 
 void Battery::handleBatteryControl() {
-    uint32_t currentMillis = millis(); 
-    
-    if (currentMillis - lastVoltageStateTime >= 2500) {
+
+    if (millis() - battery.stateMachine >= 2500) {
+        battery.stateMachine = millis();
+
         battery.prevVState = battery.vState;    // copying the previous state to the previous state
         battery.prevTState = battery.tState;    // copying the previous state to the previous state
 
@@ -382,7 +430,6 @@ void Battery::handleBatteryControl() {
             case SUBZERO:
                     digitalWrite(redLed, LOW);
                     charger(false);
-
                  break;
             case COLD:
                     digitalWrite(redLed, HIGH);
@@ -436,22 +483,24 @@ void Battery::handleBatteryControl() {
  
 
     #ifdef DEBUG
-    Serial.print("Temp: ");    
+    Serial.print(" Temp: ");   
+    Serial.print(battery.temperature); 
     Serial.print(" Vstate: ");
     Serial.print(static_cast<int>(battery.vState));
     Serial.print(", Tstate: ");
     Serial.println(static_cast<int>(battery.tState)); 
-    Serial.print("Power Limit: "); Serial.println(battery.heater.powerLimit);
+    Serial.print("Power Limit: "); 
+    Serial.print(battery.heater.powerLimit);
 
-    Serial.print("Oput: "); 
+    Serial.print(" Oput: "); 
     Serial.print(battery.heater.pidOutput);
     Serial.print(" ");
-    Serial.println(battery.heater.pidSetpoint);
+    Serial.print(battery.heater.pidSetpoint);
 
     #endif
-    battery.vState = battery.vState;
-    battery.tState = battery.tState;
-    lastVoltageStateTime = currentMillis;
+
+    battery.prevVState = battery.vState;    // copying the previous state to the previous state
+    battery.prevTState = battery.tState;    // copying the previous state to the previous state
     }
 }
 /*
@@ -887,9 +936,9 @@ void Battery::readVoltage(uint32_t intervalSeconds) {
         // Check if the moving average is within the valid range
         if (battery.milliVoltage > 9000 && battery.milliVoltage < 100000) {
  
-            int newSeries = determineBatterySeries(battery.milliVoltage);
-            if (battery.sizeApprx < newSeries) {
-                battery.sizeApprx = newSeries;
+            // int newSeries = 
+            if (battery.sizeApprx < determineBatterySeries(battery.milliVoltage)) {
+                battery.sizeApprx = uint8_t(determineBatterySeries(battery.milliVoltage));
             }
 
             battery.voltageInPrecent = getVoltageInPercentage(battery.milliVoltage);
