@@ -6,22 +6,23 @@
 
 // Forward declarations for state types
 enum VoltageState { 
-    LAST_RESORT             =   0,              // red
-    LOW_VOLTAGE_WARNING     =   1,              // yellow+red
-    PROTECTED               =   2,              // yellow_solid
-    ECONOMY                 =   3,              // Green_solid    
-    BOOST                   =   4,              // Green_blink
-    VBOOST_RESET            =   5   
+    ALERT,                  // =   0,              // red
+    WARNING,                 // =   1,              // yellow+red
+    LOVV,                     // =   2,              // yellow_solid
+    ECO,                    // =   3,              // Green_solid    
+    BOOST,                   // =   4,              // Green_blink
+    FULL                    // =   5   
 };
 
 enum TempState {
-    SUBZERO                 =  0,
-    ECO_TEMP                =  1,
-    BOOST_TEMP              =  2,
-    OVER_TEMP               =  3,
-    TEMP_WARNING            =  4,
-    TBOOST_RESET            =  5,
-    DEFAULT_TEMP            =  6
+    SUBZERO        ,
+    COLD           ,
+    ECO_TEMP       ,
+    ECO_READY      ,
+    BOOST_TEMP     ,
+    BOOST_READY    ,
+    TEMP_WARNING   ,
+    UNKNOWN_TEMP     
 };
 
 
@@ -32,6 +33,9 @@ public:
     // Member variables
     String          name;                // Name of the battery
     uint8_t         size;                // Size of the battery
+    bool            init;                // Init of the battery
+    uint8_t         initError;           // Init error of the battery
+    uint8_t         initWarning;         // Error of the battery
     float           temperature;         // Current temperature
     uint8_t         wantedTemp;          // Desired temperature
     uint32_t        milliVoltage;        // Voltage in millivolts
@@ -47,7 +51,7 @@ public:
     VoltageState    prevVState;          // Previous voltage state
     bool            firstRun;            // Flag for first run
     uint32_t        lastMessageTime;     // Last message time
-    int             sizeApprx;           // Approximate size
+    uint8_t         sizeApprx;           // Approximate size
 
     // Nested struct for charger
     struct charger {
@@ -72,6 +76,7 @@ public:
         uint8_t     ecoTemp;        // Eco temperature
         uint8_t     boostTemp;      // Boost temperature
         uint8_t     maxPower;       // Maximum power
+        uint8_t     powerLimit;     // Power limit
 
         float       pidP;           // PID proportional
         float       pidI;           // PID integral
@@ -170,16 +175,23 @@ public:
     batteryState()
         : error(0),
           size(0), 
+          init(false),
+          initError(0),
+          initWarning(0),
           temperature(25.0),
           name("Onni"),
           ecoVoltPrecent(50), 
           boostVoltPrecent(80),
           voltBoost(false),
           tempBoost(false),
+          prevTState(SUBZERO),
+          prevVState(ALERT),
           firstRun(true),
           tState(SUBZERO),
-          vState(LAST_RESORT),   
+          vState(ALERT),   
           capct(10),     
+          lastMessageTime(0),
+          sizeApprx(0),
           chrgr{1, false, 0}, // Initialize charger struct
           timer{0, 0, 0, 0}, // Initialize timer struct
           heater{
@@ -188,7 +200,8 @@ public:
               0,    // resistance
               30,   // ecoTemp - setting reasonable default
               40,   // boostTemp - setting reasonable default
-              100,  // maxPower - setting to 100% as default
+              30,   // maxPower - setting to 100% as default
+              0,    // powerLimit
               1.0,  // pidP
               0.01, // pidI
               0.2,  // pidD
@@ -206,11 +219,12 @@ public:
           telegram{false,false, "", 922951523, 0, "922951523"}, // Initialize Telegram struct 
           stune{
                 0,              // timeNow
-                200,            // lenTime
+                250,            // lenTime
                 0,             // startTime
                 1000,           // endTime 
+
                 40.0,       // inputSpan: Input span for tuning
-                100.0,      // outputSpan: Output span for tuning
+                255.0,      // outputSpan: Output span for tuning
                 0.0,        // outputStart: Initial output value
                 50.0,       // outputStep: Step size for output adjustments
                 60,         // testTimeSec: Duration of the test in seconds
@@ -218,11 +232,12 @@ public:
                 60,         // samples: Number of samples to collect
                 40.0,       // tempLimit: Temperature limit for tuning
 
-                false,       // enable: Flag to enable/disable sTune
-                false,       // firstRunPID: Flag for the first run of PID tuning
+                false,      // enable: Flag to enable/disable sTune
+                false,      // firstRunPID: Flag for the first run of PID tuning
                 false,      // run: Flag indicating if tuning is currently running
                 false,      // done: Flag indicating if tuning is complete
                 false,      // error: Flag indicating if there was an error during tuning
+                
                 0.0,        // pidInput: Current PID input value
                 0.0,        // pidOutput: Current PID output value
                 0.0,        // pidSetpoint: Desired setpoint for PID control

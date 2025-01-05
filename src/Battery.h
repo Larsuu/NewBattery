@@ -15,6 +15,7 @@
 #include <WiFi.h>
 #include <time.h>
 #include <cctype>
+#include <cmath>
 #include <WiFiClient.h>
 #include "BatteryState.h"
 #include <esp_adc_cal.h>
@@ -52,7 +53,7 @@
 #define YELLOW_LED 18
 #define RED_LED 17
 #define PWM_CHANNEL 0
-#define PWM_FREQ 100
+#define PWM_FREQ 254
 #define PWM_RESOLUTION 8
 #endif
 
@@ -115,13 +116,17 @@ public:
     unsigned long dallasTime = 0;
 
     // PID variables
-    float pidInput, pidOutput, pidSetpoint;
-    float kp = 1.0;
-    float ki = 0.02;
-    float kd = 0.02;
+    //float pidInput, pidOutput, pidSetpoint;
+    //float kp = 1.0;
+    //float ki = 0.02;
+    //float kd = 0.02;
 
     void loop();
     void setup();
+    bool init();
+    void batteryInit();
+    void resetSettings(bool reset);
+
 
      VoltageState getVoltageState(int voltagePrecent);
      TempState getTempState(float temperature);
@@ -246,16 +251,14 @@ public:
         yellow.start();
         yellow.setDelay(1000);
 
-        // red.start();
-        // red.setDelay(1000, 0);
-
         tuner.Configure(battery.stune.inputSpan, battery.stune.outputSpan, battery.stune.outputStart, battery.stune.outputStep, battery.stune.testTimeSec, battery.stune.settleTimeSec, battery.stune.samples);
         tuner.SetEmergencyStop(battery.stune.tempLimit);
 
-        // client.setInsecure();
-        // telegramBot.setUpdateTime(2000);
-        // telegramBot.setTelegramToken(battery.telegram.token.c_str());
-        // telegramBot.begin() ? Serial.println("OK") : Serial.println("NOK");
+
+        ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
+        ledcAttachPin(heaterPin, PWM_CHANNEL);
+
+        // client.setInsecure()
         #ifdef TELEGRAM_ENABLED
         client.setInsecure();
         #endif
@@ -265,23 +268,19 @@ public:
     Blinker green;
     Blinker yellow;
 
-
     ~Battery();
     Battery(const Battery&) = delete;
     Battery& operator=(const Battery&) = delete;
 
-    //TelegramBot* botManager = nullptr;
     QuickPID heaterPID;
     sTune tuner;
 
     OneWire oneWire;            // Create OneWire instance
     DallasTemperature dallas;   // Create DallasTemperature instance
 
-
     // LAN remote control and monitoring
     WiFiClient espClient;
     PubSubClient mqtt;
-    //String mqttTopic;
 
     float lastVoltage = 0.0;
     float lastTemperature = 0.0;

@@ -5,7 +5,7 @@
 #include <string>
 #include <functional>
 #include <Preferences.h>
-//#include <AsyncTelegram2.h>
+
 #include <WiFiClientSecure.h>
 
 #if defined(ESP32)
@@ -64,7 +64,10 @@ unsigned int mittausmillit = 0;  // battery voltage and heat reading millis()
 
 int previousVState = 0;
 int previousTState = 0;
+int previousVoltBoostState = 0;
+int previousTempBoostState = 0;
 String logEntries;
+String logTime;
 String logBuffet;
 
 //UI handles
@@ -80,7 +83,14 @@ uint16_t ecoTempLabel, boostTempLabel, ecoTempMemoryLabel, boostTempMemoryLabel;
 uint16_t tempsLabels, group1, text1, text2, text3, text4, text5, text6, text7, text8, text9, text10, text11, text12;
 uint16_t verticalVoltGroup, VerticalTempGroup, quickControls, horizontalGroup;
 uint16_t voltSwitcher, tempSwitcher, infoLabel, timeLabel, timeString, extraLabel, ultraLabel, chargerTimespan, quickPanelVoltage;
-uint16_t logLabel, firstLogLabel, secondLogLabel, thirdLogLabel, fourthLogLabel;
+uint16_t logLabel, firstLogLabel, firstLogTime, secondLogLabel, thirdLogLabel, fourthLogLabel;
+
+// Heater
+uint16_t calibName, calibPass, calibButton;
+
+uint16_t heatName, heatPow, heatOn, heatOnLabel;
+
+uint16_t resetLabel, resetEnable, resetButton;
 
 // uint16_t pidPLabel, pidPText;
 
@@ -105,7 +115,7 @@ uint16_t mqttEnable, mqttUser, mqttPass, mqttIp, mqttUsername, mqttPassword, mqt
 
 uint16_t tgEnable, tgUser, tgToken, tgLabelUser, tgLabelToken, tgButton;
 
-uint16_t logTopic, logSeparator, localHosti, localAddr;
+uint16_t logTopic, logSeparator, localHosti, localAddr, localHosti2;
 
 //ESPUI Configs page integers:
 uint16_t mainSelector, permSwitcher;
@@ -115,6 +125,8 @@ uint16_t saveButton;
 uint16_t textSeriesConfig, seriesConfigNum, vertgroupswitcher, chargerTimeFeedback;
 
 uint16_t autoSeriesDet, autoSeriesNum;
+
+uint16_t headerTimeLabel, headerTempLabel, headerVoltage, headerPrecent;
 
 String stored_ssid;
 String stored_pass;
@@ -144,8 +156,14 @@ void boostTempCallback(Control *sender, int type);
 void boostTempSwitcherCallback(Control *sender, int type);
 void boostVoltageSwitcherCallback(Control *sender, int type);
 void selectBattery(Control* sender, int type);
-bool checkAndLogState();
-bool checkAndLogBoostState();
+
+bool checkAndLogVState();
+bool checkAndLogTState();
+bool checkAndLogVBoostState();
+bool checkAndLogTBoostState();
+
+String getVoltageStateName(VoltageState state);
+String getTempStateName(TempState state);
 
 String httpUserAcc = "batt";
 String httpPassAcc = "ass";
@@ -196,6 +214,19 @@ void setUpUI() {
   ESPUI.setVertical(vertgroupswitcher); 
   ESPUI.setElementStyle(vertgroupswitcher, "background-color: unset;");
 
+
+  headerTimeLabel     = ESPUI.addControl(Label, "Charger Time", "Time", None, vertgroupswitcher);
+                        ESPUI.setElementStyle(headerTimeLabel, "width: 25%; font-size: small; background-color: unset; color: lightgrey");
+
+  headerTempLabel     = ESPUI.addControl(Label, "TempLabel", "Temp", None, vertgroupswitcher);
+                        ESPUI.setElementStyle(headerTempLabel, "width: 25%; font-size: small; background-color: unset; color: lightgrey");
+
+  headerVoltage       = ESPUI.addControl(Label, "QuickbtrToVolts", "Voltage", None, vertgroupswitcher);  // NewlineLabel
+                        ESPUI.setElementStyle(headerVoltage, "width: 25%; font-size: small; background-color: unset; color: lightgrey");
+
+  headerPrecent       = ESPUI.addControl(Label, "VoltLabel", "Battery", None, vertgroupswitcher);
+                        ESPUI.setElementStyle(headerPrecent, "width: 25%; font-size: small; background-color: unset; color: lightgrey");
+
   chargerTimeFeedback = ESPUI.addControl(Label, "Charger Time", "0.00", None, vertgroupswitcher);
                         ESPUI.setElementStyle(chargerTimeFeedback, switcherLabelStyle);
 
@@ -210,30 +241,40 @@ void setUpUI() {
 
                         ESPUI.setElementStyle(ESPUI.addControl(Label, "emptyLine", "", None, vertgroupswitcher), clearLabelStyle);  // NewlineLabel
   
-  extraLabel          = ESPUI.addControl(Label, "ExtraLabel", "Temp Boost", None, vertgroupswitcher); 
+  extraLabel          = ESPUI.addControl(Label, "ExtraLabel", "Temp <br>Boost <br>", None, vertgroupswitcher); 
                         ESPUI.setVertical(extraLabel);
-                        ESPUI.setElementStyle(extraLabel, switcherLabelStyle);
+                        ESPUI.setElementStyle(extraLabel, "width: 25%; background-color: unset; text-align: center  ;");
 
   tempSwitcher        = ESPUI.addControl(Switcher, "", "", None, vertgroupswitcher, boostTempSwitcherCallback);
                         ESPUI.setVertical(tempSwitcher);
-                        // ESPUI.updateSwitcher(tempSwitcher, "1");
+                       
 
   voltSwitcher        = ESPUI.addControl(Switcher, "", "", None, vertgroupswitcher, boostVoltageSwitcherCallback);
                         ESPUI.setVertical(voltSwitcher);
-                        // ESPUI.updateSwitcher(voltSwitcher, "1");
+                       
                         
 
-  ultraLabel          = ESPUI.addControl(Label, "", "Voltage Boost", None, vertgroupswitcher);  // NewlineLabel
+  ultraLabel          = ESPUI.addControl(Label, "", "Voltage <br>Boost <br>", None, vertgroupswitcher);  // NewlineLabel
                         ESPUI.setVertical(ultraLabel);
-                        ESPUI.setElementStyle(ultraLabel, switcherLabelStyle);
+                        ESPUI.setElementStyle(ultraLabel, "width: 25%; background-color: unset; text-align: center  ;");
 
                         ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, vertgroupswitcher), clearLabelStyle);  // NewlineLabel
 
 /*
       STATS like IP and uptime
 */
-  statsLabel         = ESPUI.addControl(Label, "Stats:", "", None, tab1);
+  statsLabel         = ESPUI.addControl(Label, "Stats", "", None, tab1);
                         ESPUI.setElementStyle(statsLabel, "background-color: unset; width: 100%; color: white; font-size: small; ");
+
+  localHosti        =   ESPUI.addControl(Label, "Hostname", "", None, statsLabel);
+                       ESPUI.setElementStyle(localHosti, "background-color: unset; width: 15%; color: white; font-size: small; text-align: left; ");
+
+  localAddr         = ESPUI.addControl(Label, "IP", "http://helmi.local", None, statsLabel);
+                      ESPUI.setElementStyle(localAddr, "background-color: transparent; border: 1px solid white; text-align: center; font-size: normal; text-padding: 2px; -webkit-appearance: none; -moz-appearance: textfield; width: 70%; letter-spacing: 1px;");
+
+  localHosti2        =   ESPUI.addControl(Label, "Hostname", "", None, statsLabel);
+                       ESPUI.setElementStyle(localHosti2, "background-color: unset; width: 15%; color: white; font-size: small; text-align: left; ");
+
 
   uptimeLabel =       ESPUI.addControl(Label, "Uptime:", "Uptime", None, statsLabel);
                         ESPUI.setElementStyle(uptimeLabel, "background-color: unset; width: 25%; color: white; font-size: small; text-align: left;  ");
@@ -246,13 +287,39 @@ void setUpUI() {
 
   ipText            = ESPUI.addControl(Label, "IP", "ipAddress", None, statsLabel);
                       ESPUI.setElementStyle(ipText, "background-color: unset; width: 75%; color: white; font-size: small;  ");
- 
-  localHosti        =   ESPUI.addControl(Label, "Hostname", "Hostname", None, statsLabel);
-                        ESPUI.setElementStyle(localHosti, "background-color: unset; width: 25%; color: white; font-size: small; text-align: left; ");
-
-  localAddr         = ESPUI.addControl(Label, "IP", "http://helmi.local", None, statsLabel);
-                      ESPUI.setElementStyle(localAddr, "background-color: transparent; border: 1px solid white; text-align: center; font-size: small; -webkit-appearance: none; -moz-appearance: textfield; width: 75%;");
                   
+
+
+  heatOnLabel     = ESPUI.addControl(Label, "", "Heater", None, statsLabel);
+                      ESPUI.setElementStyle(heatOnLabel, "background-color: unset; width: 25%; color: white; font-size: small; text-align: left; ");
+
+  heatOn          = ESPUI.addControl(Label, "", "Disabled", None, statsLabel);
+                      ESPUI.setElementStyle(heatOn, "background-color: unset; width: 75%; color: white; font-size: small;");
+
+
+  calibName        = ESPUI.addControl(Label, "", "Calibration", None, statsLabel);
+                      ESPUI.setElementStyle(calibName, "background-color: unset; width: 25%; color: white; font-size: small; text-align: left; ");
+
+  calibPass         = ESPUI.addControl(Label, "", "Disabled", None, statsLabel);
+                      ESPUI.setElementStyle(calibPass, "background-color: unset; width: 75%; color: white; font-size: small;");
+
+
+  heatName        =   ESPUI.addControl(Label, "", "Power", None, statsLabel);
+                        ESPUI.setElementStyle(heatName, "background-color: unset; width: 25%; color: white; font-size: small; text-align: left; ");
+
+  heatPow         = ESPUI.addControl(Label, "", "Disabled", None, statsLabel);
+                      ESPUI.setElementStyle(heatPow, "background-color: unset; width: 75%; color: white; font-size: small;");
+
+
+
+
+
+
+
+
+
+
+
                       ESPUI.setElementStyle(ESPUI.addControl(Label, "emptyLine", "", None, statsLabel), clearLabelStyle);  // NewlineLabel
 
 
@@ -284,9 +351,12 @@ void setUpUI() {
   logLabel            = ESPUI.addControl(Label, "Log", "", None, statsLabel);
                         ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, logLabel), clearLabelStyle);  // NewlineLabel
 
+  firstLogTime       = ESPUI.addControl(Label, "Time", "", None, statsLabel);
+                        ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, firstLogTime), clearLabelStyle);  // NewlineLabel
+                        ESPUI.setElementStyle(firstLogTime, "background-color: unset; width: 20%; color: white; font-size: small; ");
   firstLogLabel       = ESPUI.addControl(Label, "FirstLog", "", None, statsLabel);
                         ESPUI.setElementStyle(ESPUI.addControl(Label, "", "", None, firstLogLabel), clearLabelStyle);  // NewlineLabel
-                        ESPUI.setElementStyle(firstLogLabel, "background-color: unset; width: 100%; color: white; font-size: small; ");
+                        ESPUI.setElementStyle(firstLogLabel, "background-color: unset; width: 80%; color: white; font-size: small; ");
 
 // #################################################################################################
  /*
@@ -362,7 +432,7 @@ autoSeriesNum       = ESPUI.addControl(Number, "Series Configuration", "7", Emer
                       ESPUI.addControl(Min, "", "7", None, autoSeriesNum);
                       ESPUI.addControl(Max, "", "21", None, autoSeriesNum);
                       ESPUI.setElementStyle(autoSeriesNum, "background-color: transparent; width: 25%; border: none; text-align: center; ; -webkit-appearance: none; -moz-appearance: textfield;");
-                      ESPUI.setElementStyle(ESPUI.addControl(Label, "C", "Strings", Emerald, group1), "font-family: serif; width: 25%; text-align: center; background-color: unset;color: darkslategray;");
+                      ESPUI.setElementStyle(ESPUI.addControl(Label, "C", "", Emerald, group1), "font-family: serif; width: 25%; text-align: center; background-color: unset;color: darkslategray;");
 
 // Add Battery Series Configuration
 textSeriesConfig = ESPUI.addControl(Label, "Battery Series Configuration", "Series Config", None, group1);
@@ -373,7 +443,7 @@ seriesConfigNum = ESPUI.addControl(Number, "Series Configuration", "13", Emerald
                   ESPUI.addControl(Max, "", "21", None, seriesConfigNum);
                   ESPUI.setElementStyle(seriesConfigNum, "background-color: transparent; width: 25%; border: none; text-align: center; ; -webkit-appearance: none; -moz-appearance: textfield;");
 
-                  ESPUI.setElementStyle(ESPUI.addControl(Label, "C", "Strings", Emerald, group1), "font-family: serif; width: 25%; text-align: center; background-color: unset;color: darkslategray;");
+                  ESPUI.setElementStyle(ESPUI.addControl(Label, "C", "", Emerald, group1), "font-family: serif; width: 25%; text-align: center; background-color: unset;color: darkslategray;");
 
 text6 =           ESPUI.addControl(Label, "Tempsis", "Temperature Settings", Emerald, group1);
                   ESPUI.setElementStyle(text6, "text-align: left; font-size: small; font-family: serif; width: 100%; background-color: unset; color: black; margin-top: 20px; border-bottom: 1px solid darkslategray; padding-bottom: 5px;");
@@ -720,6 +790,20 @@ uint16_t tgButton = ESPUI.addControl(Button, "Memory", "Save", None, tgLabel, []
 
     } });
   ESPUI.setElementStyle(tgButton,"width: 20%; text-align: center; font-size: medium; font-family: serif; margin-top: 20px; margin-bottom: 20px; border-radius: 15px;");
+  
+  // reset back to factory settings
+
+        
+auto  resetLabel    = ESPUI.addControl(Label, "Back toFactory Settings", "Reset Settings", Peterriver, tgtab, generalCallback);
+                      ESPUI.setElementStyle(resetLabel, "font-family: serif; background-color: unset; width: 100%; ");
+
+resetButton         = ESPUI.addControl(Button, "Memory", "Reset", None, resetLabel, [](Control *sender, int type) {
+                     if (type == B_UP) {
+                       Serial.println("Resetting settings...");
+                       batt.resetSettings(true);
+                     } });
+                   ESPUI.setElementStyle(resetButton,"width: 20%; text-align: center; font-size: medium; font-family: serif; margin-top: 20px; margin-bottom: 20px; border-radius: 15px;");
+  
   /*
 
     Tab: WiFi Credentials
@@ -735,7 +819,7 @@ uint16_t tgButton = ESPUI.addControl(Button, "Memory", "Save", None, tgLabel, []
     ESPUI.updateControlValue(boostVoltLabel, String(batt.btryToVoltage(batt.getBoostPrecentVoltage()), 1) + " V");
     ESPUI.updateControlValue(text10, String(batt.getCharger()));
     ESPUI.updateControlValue(text12, String(batt.getCapacity()));
-    ESPUI.updateControlValue(chargerTimeFeedback, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
+    ESPUI.updateControlValue(chargerTimeFeedback, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 1) + " h");
     ESPUI.updateControlValue(chargerTimespan, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
     ESPUI.updateControlValue(heaterNum, String(batt.getResistance()));
     ESPUI.updateControlValue(nameLabel, String(batt.battery.name));
@@ -1113,58 +1197,72 @@ void loop() {
       mittausmillit = millis();
       String wlanIpAddress;
 
+
+      if(batt.battery.voltBoost) {
+        ESPUI.updateLabel(chargerTimeFeedback, String(batt.calculateChargeTime(batt.battery.voltageInPrecent, batt.getBoostPrecentVoltage()), 2) + " h");
+      }
+      else {
+        ESPUI.updateLabel(chargerTimeFeedback, String(batt.calculateChargeTime(batt.battery.voltageInPrecent, batt.getEcoPrecentVoltage()), 2) + " h");
+      }
+      
+
       wlanIpAddress = WiFi.localIP().toString();
       ESPUI.updateLabel(ipText, wlanIpAddress);
       ESPUI.updateLabel(ipLabel, wlanIpAddress);
-      ESPUI.updateLabel(labelId, String((millis() / 60000)));
+      ESPUI.updateLabel(labelId, String(millis() / 60000) + " min");
       ESPUI.updateLabel(voltLabel, String(batt.getBatteryDODprecent()) + " %");
       ESPUI.updateLabel(tempLabel, String(batt.getTemperature(), 1) + " ℃");
-      ESPUI.updateLabel(chargerTimeFeedback, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
+
       ESPUI.updateLabel(boostVoltLabel, String(batt.btryToVoltage(batt.getBoostPrecentVoltage()), 0) + " V");
       ESPUI.updateLabel(quickPanelVoltage, String(batt.getCurrentVoltage(), 1) + " V");
       ESPUI.updateLabel(chargerTimespan, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
       ESPUI.updateLabel(autoSeriesNum, String(batt.getBatteryApprxSize()));
+      ESPUI.updateLabel(heatPow, String((batt.battery.heater.pidOutput / 255) * 100) + " %" + "    " + String(batt.battery.heater.maxPower * (batt.battery.heater.pidOutput / float(255))) + " W");
+      ESPUI.updateLabel(heatOn, String(batt.battery.init ? "Ok" : "Fail"));
+      ESPUI.updateLabel(calibPass, String(batt.battery.stune.done ? "Ok" : "Fail"));
+      ESPUI.updateLabel(ecoVoltLabel, String(batt.btryToVoltage(batt.getEcoPrecentVoltage()), 1) + " V");
+      ESPUI.updateLabel(boostVoltLabel, String(batt.btryToVoltage(batt.getBoostPrecentVoltage()), 1) + " V");
+   
 
-    
-      
-
-      if (checkAndLogBoostState()) {
-        logEntries += String((millis() / 60000)) + "  " + String("Voltage boost: ") + String(batt.battery.voltBoost) + "     " + String("Temp boost: ") + String(batt.battery.tempBoost) + "\n";
+      // Check and log voltage state
+      if (batt.battery.vState != batt.battery.prevVState) {
+          logEntries += String(getVoltageStateName(batt.battery.vState)) + "\n";
+          logTime += String(millis() / 60000) + "  min" + "\n";
       }
-
-      if (checkAndLogState()) {
-        logEntries += String((millis() / 60000)) + "  " + String("Voltage state: ") + String(batt.battery.vState) + "     " + String("Temp state: ")  + String(batt.battery.tState) + "\n";
+      // Check and log temperature state
+      if (batt.battery.tState != batt.battery.prevTState) {
+          logEntries += String(getTempStateName(batt.battery.tState)) + "\n";
+          logTime += String(millis() / 60000) + "  min" + "\n";
       }
 
       ESPUI.updateLabel(firstLogLabel, logEntries);
+      ESPUI.updateLabel(firstLogTime, logTime);
     }
 
 }
 
-bool checkAndLogState() {
-    if ((batt.battery.vState != batt.battery.prevVState) || (batt.battery.tState != batt.battery.prevTState)) {
-      
-      /*
-        String newState = "VState: " + String(Battery::batry.vState) + ", TState: " + String(Battery::batry.tState);
-        uint32_t timeing = (millis() - now) / 60000;
-        String output;
-        output = String(timeing) + "    " + newState + "\n";
-        previousVState = Battery::batry.vState;
-        previousTState = Battery::batry.tState;
-        Serial.println(newState);
-        return output;
-        */
+bool checkAndLogVState() {
+    if ((batt.battery.vState != batt.battery.prevVState)) return true;
+    else return false;
+}
 
-    return true;
+bool checkAndLogTState() {
+    if (batt.battery.tState != batt.battery.prevTState) return true;
+    else return false;
+}
+
+bool checkAndLogVBoostState() {
+    if ( batt.battery.voltBoost != previousVoltBoostActive) {
+        previousVoltBoostActive = batt.battery.voltBoost;
+        return true;
     }
     else return false;
 }
 
-bool checkAndLogBoostState() {
-    if ( batt.battery.voltBoost != previousVoltBoostActive || batt.battery.tempBoost != previousTempBoostActive) {
-        previousTempBoostActive = batt.battery.tempBoost;
-        previousVoltBoostActive = batt.battery.voltBoost;
-        return true;
+bool checkAndLogTBoostState() {
+    if (batt.battery.tempBoost != previousTempBoostActive) {
+      previousTempBoostActive = batt.battery.tempBoost;
+      return true;
     }
     else return false;
 }
@@ -1252,4 +1350,30 @@ void paramCallback(Control* sender, int type, int param)
     Serial.println(sender->value);
     Serial.print("param = ");
     Serial.println(param);
+}
+
+String getVoltageStateName(VoltageState state) {
+    switch (state) {
+        case ALERT: return "ALERT";
+        case WARNING: return "WARNING";
+        case LOVV: return "Low Voltage";
+        case ECO: return "Eco Voltage";
+        case BOOST: return "Boost Voltage";
+        case FULL: return "Full Battery";
+        default: return "UNKNOWN";
+    }
+}
+
+String getTempStateName(TempState state) {
+    switch (state) {
+        case SUBZERO: return "SUBZERO TEMP WARNING";
+        case COLD: return "Cold Temp";
+        case ECO_TEMP: return "Eco Temp";
+        case ECO_READY: return "Eco Temp Ready"; 
+        case BOOST_TEMP: return "Boost Temp";
+        case BOOST_READY: return "Boost Temp Ready";
+        case TEMP_WARNING: return "Temp Warning";
+        case UNKNOWN_TEMP: return "UNKNOWN TEMP ALERT";
+        default: return "COLD";
+    }
 }
