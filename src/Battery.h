@@ -34,6 +34,7 @@
 
 // old hardware version (just few old prototype boards  -- not in public use)
 #ifdef VERSION_1
+
 #define TEMP_SENSOR 21
 #define VOLTAGE_PIN 39
 #define HEATER_PIN 33
@@ -53,7 +54,7 @@
 #define YELLOW_LED 18
 #define RED_LED 17
 #define PWM_CHANNEL 0
-#define PWM_FREQ 254
+#define PWM_FREQ 255
 #define PWM_RESOLUTION 8
 #endif
 
@@ -127,8 +128,9 @@ public:
     void batteryInit();
     void resetSettings(bool reset);
     void startUpInit();
-
-
+    bool heaterInit();
+    void ledcInit();
+    
      VoltageState getVoltageState(int voltagePrecent);
      TempState getTempState(float temperature);
 
@@ -216,65 +218,38 @@ public:
 
  private:
 
-    const int tempSensor = TEMP_SENSOR;
-    const int voltagePin = VOLTAGE_PIN;
-    const int heaterPin = HEATER_PIN;
-    const int chargerPin = CHARGER_PIN;
-    const int greenLed = GREEN_LED;
-    const int yellowLed = YELLOW_LED;
-    const int redLed = RED_LED;
-    const int saveButton = GPIO_NUM_0;
+    const uint8_t tempSensor = TEMP_SENSOR;
+    const uint8_t voltagePin = VOLTAGE_PIN;
+    const uint8_t heaterPin = HEATER_PIN;
+    const uint8_t chargerPin = CHARGER_PIN;
+    const uint8_t greenLed = GREEN_LED;
+    const uint8_t yellowLed = YELLOW_LED;
+    const uint8_t redLed = RED_LED;
+    const uint8_t saveButton = GPIO_NUM_0;
 
-    Battery() 
-        : battery(),
-          oneWire(tempSensor),
-          dallas(&oneWire),
-          heaterPID(&battery.heater.pidInput, &battery.heater.pidOutput, &battery.heater.pidSetpoint, battery.heater.pidP, battery.heater.pidI, battery.heater.pidD, QuickPID::Action::direct),
-          tuner(&battery.stune.pidInput, &battery.stune.pidOutput, tuner.ZN_PID, tuner.directIP, tuner.printALL),
-          green(greenLed),
-          yellow(yellowLed),
-          mqtt(espClient)
-    {
+    enum BatteryLoop {
+    STARTUP,
+    BATTERY_INIT,
+    BATTERY_CALIB,
+    HEATER_INIT,
+    PID_CALIB,
+    LEDC_INIT,
+    NORMAL,
+    HEATING
+    };
 
-        // WiFi.begin(battery.wlan.ssid.c_str(), battery.wlan.pass.c_str());
-        //Serial.println(WiFi.status());
-        //WiFi.setHostname(battery.name.c_str());
-        
-        adc1_config_width(ADC_WIDTH_12Bit);
-        adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
-        esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH_BIT_12, V_REF, &characteristics);
+    BatteryLoop currentState = STARTUP;
 
-        heaterPID.SetMode(QuickPID::Control::manual);
-        heaterPID.SetOutputLimits(0, 2);
+    float stuneInput = 0;
+    float stuneOutput = 0;
+    float stuneSetpoint = 0;
 
-        green.start();
-        green.setDelay(1000);
+    float heaterInput = 0;
+    float heaterOutput = 0;
+    float heaterSetpoint = 0;
 
-        yellow.start();
-        yellow.setDelay(1000);
-
-        tuner.Configure(battery.stune.inputSpan, battery.stune.outputSpan, battery.stune.outputStart, battery.stune.outputStep, battery.stune.testTimeSec, battery.stune.settleTimeSec, battery.stune.samples);
-        tuner.SetEmergencyStop(battery.stune.tempLimit);
-
-
-        ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
-        ledcAttachPin(heaterPin, PWM_CHANNEL);
-
-        // client.setInsecure()
-        #ifdef TELEGRAM_ENABLED
-        client.setInsecure();
-        #endif
-
-    }
-
-    
-    
     Blinker green;
     Blinker yellow;
-
-    ~Battery();
-    Battery(const Battery&) = delete;
-    Battery& operator=(const Battery&) = delete;
 
     QuickPID heaterPID;
     sTune tuner;
@@ -290,6 +265,59 @@ public:
     float lastTemperature = 0.0;
 
     esp_adc_cal_characteristics_t characteristics;
+
+
+
+    Battery() 
+        : battery(),
+          oneWire(tempSensor),
+          dallas(&oneWire),
+          heaterPID(&battery.heater.pidInput, &battery.heater.pidOutput, &battery.heater.pidSetpoint, battery.heater.pidP, battery.heater.pidI, battery.heater.pidD, QuickPID::Action::direct),
+          tuner(&battery.stune.pidInput, &battery.stune.pidOutput, tuner.ZN_PID, tuner.directIP, tuner.printALL),
+          green(greenLed),
+          yellow(yellowLed),
+          mqtt(espClient)
+    {
+
+        // WiFi.begin(battery.wlan.ssid.c_str(), battery.wlan.pass.c_str());
+        //Serial.println(WiFi.status());
+        //WiFi.setHostname(battery.name.c_str());
+
+        
+        
+        adc1_config_width(ADC_WIDTH_12Bit);
+        adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
+        esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH_BIT_12, V_REF, &characteristics);
+
+        heaterPID.SetMode(QuickPID::Control::manual);
+        heaterPID.SetOutputLimits(0, 254);
+
+        pinMode(heaterPin, OUTPUT);
+
+        green.start();
+        green.setDelay(1000);
+
+        yellow.start();
+        yellow.setDelay(1000);
+
+        tuner.Configure(battery.stune.inputSpan, battery.stune.outputSpan, battery.stune.outputStart, battery.stune.outputStep, battery.stune.testTimeSec, battery.stune.settleTimeSec, battery.stune.samples);
+        tuner.SetEmergencyStop(battery.stune.tempLimit);
+
+
+        //ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
+        //  ledcAttachPin(heaterPin, PWM_CHANNEL);
+
+        // client.setInsecure()
+        #ifdef TELEGRAM_ENABLED
+        client.setInsecure();
+        #endif
+
+    }
+
+    ~Battery();
+    Battery(const Battery&) = delete;
+    Battery& operator=(const Battery&) = delete;
+
 };
 
 #endif // BATTERY_H

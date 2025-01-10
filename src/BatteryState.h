@@ -6,12 +6,12 @@
 
 // Forward declarations for state types
 enum VoltageState {
-    ALERT,                  // =   0,              // red
-    WARNING,                 // =   1,              // yellow+red
-    LOVV,                     // =   2,              // yellow_solid
-    ECO,                    // =   3,              // Green_solid    
-    BOOST,                   // =   4,              // Green_blink
-    FULL                    // =   5   
+    ALERT,                  
+    WARNING,                
+    LOVV,                    
+    ECO,                    
+    BOOST,                   
+    FULL                   
 };
 
 enum TempState {
@@ -34,6 +34,7 @@ public:
     String          name;                // Name of the battery
     uint8_t         size;                // Size of the battery
     bool            init;                // Init of the battery
+    uint8_t         initLevel;           // Init level of the battery
     uint8_t         initError;           // Init error of the battery
     uint8_t         initWarning;         // Error of the battery
     float           temperature;         // Current temperature
@@ -231,7 +232,7 @@ public:
           startup{false, false, 0, 10000, 0}, // Initialize startup struct
           stune{
                 0,              // timeNow
-                250,            // lenTime
+                600,            // lenTime
                 0,             // startTime
                 1000,           // endTime 
 

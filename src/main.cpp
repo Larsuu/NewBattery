@@ -61,11 +61,14 @@ int tempest;
 int batteryInSeries;
 unsigned int mittausmillit = 0;  // battery voltage and heat reading millis()
 
+VoltageState previousVState;
+TempState previousTState;
 
-int previousVState = 0;
-int previousTState = 0;
+String wlanIpAddress;
+
 int previousVoltBoostState = 0;
 int previousTempBoostState = 0;
+
 String logEntries;
 String logTime;
 String logBuffet;
@@ -89,6 +92,8 @@ uint16_t logLabel, firstLogLabel, firstLogTime, secondLogLabel, thirdLogLabel, f
 uint16_t calibName, calibPass, calibButton;
 
 uint16_t heatName, heatPow, heatOn, heatOnLabel;
+
+uint16_t initLevel, initLevelLabel;
 
 uint16_t resetLabel, resetEnable, resetButton;
 
@@ -178,11 +183,8 @@ void setup() {
 	  Serial.begin(115200);
     batt.loadSettings(ALL);
     
-#if defined(ESP32)
    WiFi.setHostname(batt.battery.name.c_str());  // needs to be before setUpUI!!   
-#else
-    WiFi.hostname(batt.battery.name.c_str());
-#endif
+
 	while(!Serial);
 	if(SLOW_BOOT) delay(5000); //Delay booting to give time to connect a serial monitor
 	  connectWifi();
@@ -192,7 +194,7 @@ void setup() {
 	  setUpUI();
 }   
 void setUpUI() {
-  ESPUI.setVerbosity(Verbosity::Verbose);
+  ESPUI.setVerbosity(Verbosity::Quiet);
   ESPUI.captivePortal = true;
   ESPUI.sliderContinuous = false;
     auto tab1 = ESPUI.addControl(Tab, "Info", "Info");
@@ -287,7 +289,12 @@ void setUpUI() {
 
   ipText            = ESPUI.addControl(Label, "IP", "ipAddress", None, statsLabel);
                       ESPUI.setElementStyle(ipText, "background-color: unset; width: 75%; color: white; font-size: small;  ");
-                  
+
+  initLevelLabel    = ESPUI.addControl(Label, "Init Level", "InitLevel", None, statsLabel);
+                      ESPUI.setElementStyle(initLevelLabel, "background-color: unset; width: 25%; color: white; font-size: small; text-align: left; ");
+
+  initLevel         = ESPUI.addControl(Label, "Init Level", "0", None, statsLabel);
+                      ESPUI.setElementStyle(initLevel, "background-color: unset; width: 75%; color: white; font-size: small;");
 
 
   heatOnLabel     = ESPUI.addControl(Label, "", "Heater", None, statsLabel);
@@ -1188,6 +1195,7 @@ unsigned long lastMsg = 0;
 const long interval = 15000; // 1 minute
 unsigned long mqttmillis = 0;
 
+
 void loop() {
 
   batt.loop(); // Add battery.loop() here
@@ -1195,162 +1203,58 @@ void loop() {
   if(millis() - mittausmillit >= 3000)
   {
       mittausmillit = millis();
-      String wlanIpAddress;
 
-
-      if(batt.battery.voltBoost) {
-        ESPUI.updateLabel(chargerTimeFeedback, String(batt.calculateChargeTime(batt.battery.voltageInPrecent, batt.getBoostPrecentVoltage()), 2) + " h");
-      }
-      else {
-        ESPUI.updateLabel(chargerTimeFeedback, String(batt.calculateChargeTime(batt.battery.voltageInPrecent, batt.getEcoPrecentVoltage()), 2) + " h");
-      }
+      if(batt.battery.voltBoost) 
+        {
+          ESPUI.updateLabel(chargerTimeFeedback, String(batt.calculateChargeTime(batt.battery.voltageInPrecent, batt.battery.boostVoltPrecent), 2) + " h");
+        }
+      else 
+        {
+          ESPUI.updateLabel(chargerTimeFeedback, String(batt.calculateChargeTime(batt.battery.voltageInPrecent, batt.battery.ecoVoltPrecent), 2) + " h");
+        }
       
 
       wlanIpAddress = WiFi.localIP().toString();
-      ESPUI.updateLabel(ipText, wlanIpAddress);
-      ESPUI.updateLabel(ipLabel, wlanIpAddress);
-      ESPUI.updateLabel(labelId, String(millis() / 60000) + " min");
-      ESPUI.updateLabel(voltLabel, String(batt.getBatteryDODprecent()) + " %");
-      ESPUI.updateLabel(tempLabel, String(batt.getTemperature(), 1) + " ℃");
 
-      ESPUI.updateLabel(boostVoltLabel, String(batt.btryToVoltage(batt.getBoostPrecentVoltage()), 0) + " V");
+      ESPUI.updateLabel(ipText, wlanIpAddress);                                               // stats -> ipaddr
+     
+      ESPUI.updateLabel(labelId, String(millis() / 60000) + " min");                          // stats -> uptime
+
+      ESPUI.updateLabel(voltLabel, String(batt.getBatteryDODprecent()) + " %");               // stats -> battery level 
+
+      ESPUI.updateLabel(tempLabel, String(batt.getTemperature(), 1) + " ℃");                   // stats -> battery temp 
+
+      ESPUI.updateLabel(boostVoltLabel, String(batt.btryToVoltage(batt.battery.boostVoltPrecent), 0) + " V");
+
       ESPUI.updateLabel(quickPanelVoltage, String(batt.getCurrentVoltage(), 1) + " V");
       ESPUI.updateLabel(chargerTimespan, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
       ESPUI.updateLabel(autoSeriesNum, String(batt.getBatteryApprxSize()));
       ESPUI.updateLabel(heatPow, String((batt.battery.heater.pidOutput / 255) * 100) + " %" + "    " + String(batt.battery.heater.maxPower * (batt.battery.heater.pidOutput / float(255))) + " W");
-      ESPUI.updateLabel(heatOn, String(batt.battery.init ? "Ok" : "Fail"));
-      ESPUI.updateLabel(calibPass, String(batt.battery.stune.done ? "Ok" : "Fail"));
+      ESPUI.updateLabel(heatOn, String(batt.battery.init ? "Ok" : "Fail"));    //     " + String(float(batt.battery.heater.maxPower) * (float(batt.battery.heater.powerLimit) / float(255)), 1) + " W");
+      ESPUI.updateLabel(calibPass, String(batt.battery.stune.done ? "Ok" : "Fail") + "    ( P:" + String(batt.battery.heater.pidP) + " | I:" + String(batt.battery.heater.pidI) + " | D:" + String(batt.battery.heater.pidD) + ")    " + String(batt.battery.stune.run ? "Running" : ""));
       ESPUI.updateLabel(ecoVoltLabel, String(batt.btryToVoltage(batt.getEcoPrecentVoltage()), 1) + " V");
       ESPUI.updateLabel(boostVoltLabel, String(batt.btryToVoltage(batt.getBoostPrecentVoltage()), 1) + " V");
+      ESPUI.updateLabel(initLevel, String(batt.battery.initLevel) + " / 7");
    
 
       // Check and log voltage state
-      if (batt.battery.vState != batt.battery.prevVState) {
+      if (batt.battery.vState != previousVState) {
           logEntries += String(getVoltageStateName(batt.battery.vState)) + "\n";
-          logTime += String(millis() / 60000) + "  min" + "\n";
+          logTime += String(millis() / 60000) + " min" + "\n";
+          previousVState = batt.battery.vState;
       }
       // Check and log temperature state
-      if (batt.battery.tState != batt.battery.prevTState) {
+      if (batt.battery.tState != previousTState) {
           logEntries += String(getTempStateName(batt.battery.tState)) + "\n";
-          logTime += String(millis() / 60000) + "  min" + "\n";
+          logTime += String(millis() / 60000) + " min" + "\n";
+          previousTState = batt.battery.tState;
       }
 
       ESPUI.updateLabel(firstLogLabel, logEntries);
       ESPUI.updateLabel(firstLogTime, logTime);
     }
-
 }
 
-bool checkAndLogVState() {
-    if ((batt.battery.vState != batt.battery.prevVState)) return true;
-    else return false;
-}
-
-bool checkAndLogTState() {
-    if (batt.battery.tState != batt.battery.prevTState) return true;
-    else return false;
-}
-
-bool checkAndLogVBoostState() {
-    if ( batt.battery.voltBoost != previousVoltBoostActive) {
-        previousVoltBoostActive = batt.battery.voltBoost;
-        return true;
-    }
-    else return false;
-}
-
-bool checkAndLogTBoostState() {
-    if (batt.battery.tempBoost != previousTempBoostActive) {
-      previousTempBoostActive = batt.battery.tempBoost;
-      return true;
-    }
-    else return false;
-}
-
-/*
-void connectWifi() {
-  Serial.println("Connecting to WiFi...");
-  WiFi.begin(batt.battery.wlan.ssid.c_str(), batt.battery.wlan.pass.c_str());
-  if(WiFi.status() != WL_CONNECTED) {
-    Serial.println("Connecting to WiFi...");
-  }
-  Serial.println("Connected to WiFi");
-  WiFi.setHostname(batt.battery.name.c_str());
-}
-*/
-
-
-void connectWifi() {
-	int connect_timeout;
-
-#if defined(ESP32)
-	WiFi.setHostname(batt.battery.name.c_str());
-#else
-	WiFi.hostname(HOSTNAME);
-#endif
-	Serial.println("Begin wifi...");
-
-	//Load credentials from EEPROM 
-	if(!(FORCE_USE_HOTSPOT)) {
-		yield();
-	
-		//Try to connect with stored credentials, fire up an access point if they don't work.
-		#if defined(ESP32)
-			WiFi.begin(batt.battery.wlan.ssid.c_str(), batt.battery.wlan.pass.c_str());
-		#else
-			WiFi.begin(stored_ssid, stored_pass);
-		#endif
-		connect_timeout = 28; //7 seconds
-		while (WiFi.status() != WL_CONNECTED && connect_timeout > 0) {
-			delay(250);
-			Serial.print(".");
-			connect_timeout--;
-		}
-	}
-	
-	if (WiFi.status() == WL_CONNECTED) {
-		Serial.println(WiFi.localIP());
-		Serial.println("Wifi started");
-
-		if (!MDNS.begin(batt.battery.name.c_str())) {
-			Serial.println("Error setting up MDNS responder!");
-		}
-	} else {
-		Serial.println("\nCreating access point...");
-		WiFi.mode(WIFI_AP);
-		WiFi.softAPConfig(IPAddress(192, 168, 1, 1), IPAddress(192, 168, 1, 1), IPAddress(255, 255, 255, 0));
-		WiFi.softAP(HOSTNAME);
-
-		connect_timeout = 20;
-		do {
-			delay(250);
-			Serial.print(",");
-			connect_timeout--;
-		} while(connect_timeout);
-	}
-}
-
-
-void textCallback(Control *sender, int type) {
-	//This callback is needed to handle the changed values, even though it doesn't do anything itself.
-}
-
-// Most elements in this test UI are assigned this generic callback which prints some
-// basic information. Event types are defined in ESPUI.h
-// The extended param can be used to pass additional information
-void paramCallback(Control* sender, int type, int param)
-{
-    Serial.print("CB: id(");
-    Serial.print(sender->id);
-    Serial.print(") Type(");
-    Serial.print(type);
-    Serial.print(") '");
-    Serial.print(sender->label);
-    Serial.print("' = ");
-    Serial.println(sender->value);
-    Serial.print("param = ");
-    Serial.println(param);
-}
 
 String getVoltageStateName(VoltageState state) {
     switch (state) {
@@ -1377,3 +1281,71 @@ String getTempStateName(TempState state) {
         default: return "COLD";
     }
 }
+
+
+void textCallback(Control *sender, int type) {
+	//This callback is needed to handle the changed values, even though it doesn't do anything itself.
+}
+
+// Most elements in this test UI are assigned this generic callback which prints some
+// basic information. Event types are defined in ESPUI.h
+// The extended param can be used to pass additional information
+void paramCallback(Control* sender, int type, int param)
+{
+    Serial.print("CB: id(");
+    Serial.print(sender->id);
+    Serial.print(") Type(");
+    Serial.print(type);
+    Serial.print(") '");
+    Serial.print(sender->label);
+    Serial.print("' = ");
+    Serial.println(sender->value);
+    Serial.print("param = ");
+    Serial.println(param);
+}
+
+
+
+  /*
+    Wifi connection for ESPUI
+  */
+  void connectWifi() {
+  	int connect_timeout;
+  	WiFi.setHostname(batt.battery.name.c_str());
+  	Serial.println("Begin wifi...");
+
+  	//Load credentials from EEPROM 
+  	if(!(FORCE_USE_HOTSPOT)) {
+  		yield();
+ 			WiFi.begin(batt.battery.wlan.ssid.c_str(), batt.battery.wlan.pass.c_str());
+  		connect_timeout = 28; //7 seconds
+
+  		while (WiFi.status() != WL_CONNECTED && connect_timeout > 0) {
+  			delay(250);
+  			Serial.print(".");
+  			connect_timeout--;
+  		}
+  	}
+	
+	if (WiFi.status() == WL_CONNECTED) {
+		Serial.println(WiFi.localIP());
+		Serial.println("Wifi started");
+
+		if (!MDNS.begin(batt.battery.name.c_str())) {
+			Serial.println("Error setting up MDNS responder!");
+		}
+	} else {
+		Serial.println("\nCreating access point...");
+		WiFi.mode(WIFI_AP);
+		WiFi.softAPConfig(IPAddress(192, 168, 1, 1), IPAddress(192, 168, 1, 1), IPAddress(255, 255, 255, 0));
+		WiFi.softAP(HOSTNAME);
+
+		connect_timeout = 20;
+		do {
+			delay(250);
+			Serial.print(",");
+			connect_timeout--;
+		} while(connect_timeout);
+	}
+}
+
