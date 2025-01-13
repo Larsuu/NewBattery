@@ -27,7 +27,7 @@
 //              PROPERTIES!!
 /* ______________________________________ */
 #define MQTT_ENABLED
-#define VERSION_2
+#define VERSION_1
 // #define TELEGRAM_ENABLED
 
 
@@ -142,8 +142,6 @@ public:
     int getVoltageInPercentage(uint32_t milliVoltage);
     float btryToVoltage(int precent); 
     
-    bool setPidP(float pidP);
-    int getPidP();
     void runTune();
 
     bool getChargerStatus();
@@ -188,8 +186,11 @@ public:
     float getCurrentVoltage();
     int getBatteryApprxSize();
 
-    bool setHostname(String hostname);
-    bool getHostname();
+    void setHostname(const String& hostname);
+    void getHostname();
+
+    // void setHostname(const char* hostname);
+    // const char* getHostname() const;
 
     void updateHeaterPID();
     void controlHeaterPWM();

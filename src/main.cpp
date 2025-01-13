@@ -4,68 +4,53 @@
 #include <OneWire.h>
 #include <string>
 #include <functional>
-#include <Preferences.h>
-
-#include <WiFiClientSecure.h>
-
-#if defined(ESP32)
 #include <WiFi.h>
 #include <ESPmDNS.h>
-#else
-
 #include <ESPUI.h>
-// esp8266
-#include <ESP8266WiFi.h>
-#include <ESP8266mDNS.h>
-#include <umm_malloc/umm_heap_select.h>
-#ifndef CORE_MOCK
-#ifndef MMU_IRAM_HEAP
-#warning Try MMU option '2nd heap shared' in 'tools' IDE menu (cf. https://arduino-esp8266.readthedocs.io/en/latest/mmu.html#option-summary)
-#warning use decorators: { HeapSelectIram doAllocationsInIRAM; ESPUI.addControl(...) ... } (cf. https://arduino-esp8266.readthedocs.io/en/latest/mmu.html#how-to-select-heap)
-#warning then check http://<ip>/heap
-#endif // MMU_IRAM_HEAP
-#ifndef DEBUG_ESP_OOM
-#error on ESP8266 and ESPUI, you must define OOM debug option when developping
-#endif
-#endif
-#endif
-
-/*
-#define ENABLE_SERIAL_PRINTS true
-
-#if ENABLE_SERIAL_PRINTS
-#define SERIAL_PRINT(x) Serial.print(x)
-#define SERIAL_PRINTLN(x) Serial.println(x)
-#else
-#define SERIAL_PRINT(x)
-#define SERIAL_PRINTLN(x)
-#endif
-
-*/
-
 
 //Settings for ESPUI
 #define SLOW_BOOT 0
 #define HOSTNAME "Helmi"
 #define FORCE_USE_HOTSPOT 0
 #define LOG_BUFFER 50
+#define MAINDEBUG
+
+
+/*
+#define ENABLE_SERIAL_PRINTS true
+
+#if ENABLE_SERIAL_PRINTS
+#define SP(x) Serial.print(x)
+#define SPLN(x) Serial.println(x)
+#else
+#define SP(x)
+#define SPNL(x)
+#endif
+*/
+
 
 // This is correct - external code needs the reference
 Battery& batt = Battery::getInstance();
 
 
 // AsyncTelegram2* bot;
-//WiFiClient asiakas;  
+//WiFiClient asiakas; 
+
+Preferences preferences;
 
 int tempest;
 int batteryInSeries;
 unsigned int mittausmillit = 0;  // battery voltage and heat reading millis()
 
+unsigned long lastMsg = 0;
+const long interval = 15000; // 1 minute
+unsigned long mqttmillis = 0; 
 
 int previousVState = 0;
 int previousTState = 0;
 int previousVoltBoostState = 0;
 int previousTempBoostState = 0;
+
 String logEntries;
 String logTime;
 String logBuffet;
@@ -104,7 +89,6 @@ uint32_t now = 0;
 //UI handles
 const char* hostname = "helmi";
 
-uint16_t graph;
 volatile bool updates = false;
 
 uint16_t wifi_ssid_text, wifi_pass_text, wifiLabelSSID, wifiLabelPass, wifiButton;
@@ -131,7 +115,186 @@ uint16_t headerTimeLabel, headerTempLabel, headerVoltage, headerPrecent;
 String stored_ssid;
 String stored_pass;
 
-Preferences preferences;
+
+void updateControlValues() {
+    char buffer[50]; // Buffer for formatted strings
+
+    // Update control values using snprintf
+    snprintf(buffer, sizeof(buffer), "%d", batt.battery.heater.ecoTemp);
+    ESPUI.updateControlValue(ecoTempNum, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%d", batt.battery.ecoVoltPrecent);
+    ESPUI.updateControlValue(ecoVoltNum, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%d", batt.battery.heater.boostTemp);
+    ESPUI.updateControlValue(boostTemp, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%d", batt.battery.boostVoltPrecent);
+    ESPUI.updateControlValue(boostVolts, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%d", batt.battery.size);
+    ESPUI.updateControlValue(seriesConfigNum, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%.1f V", batt.btryToVoltage(batt.battery.ecoVoltPrecent));
+    ESPUI.updateControlValue(ecoVoltLabel, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%.1f V", batt.btryToVoltage(batt.battery.boostVoltPrecent));
+    ESPUI.updateControlValue(boostVoltLabel, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%d", batt.battery.chrgr.current);
+    ESPUI.updateControlValue(text10, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%d", batt.battery.capct);
+    ESPUI.updateControlValue(text12, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%.1f h", batt.calculateChargeTime(batt.battery.ecoVoltPrecent, batt.battery.boostVoltPrecent));
+    ESPUI.updateControlValue(chargerTimeFeedback, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%.2f h", batt.calculateChargeTime(batt.battery.ecoVoltPrecent, batt.battery.boostVoltPrecent));
+    ESPUI.updateControlValue(chargerTimespan, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%d", batt.battery.heater.resistance);
+    ESPUI.updateControlValue(heaterNum, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%s", batt.battery.name.c_str());
+    ESPUI.updateControlValue(nameLabel, buffer);
+
+    snprintf(buffer, sizeof(buffer), "http://%s.local", batt.battery.name.c_str());
+    ESPUI.updateControlValue(localAddr, buffer);
+}
+
+
+/*
+struct ControlData {
+    uint16_t ecoTempNum;
+    uint16_t ecoVoltNum;
+    uint16_t boostTemp;
+    uint16_t boostVolts;
+    uint16_t seriesConfigNum;
+    uint16_t ecoVoltLabel;
+    uint16_t boostVoltLabel;
+    uint16_t text10;
+    uint16_t text12;
+    uint16_t chargerTimeFeedback;
+    uint16_t chargerTimespan;
+    uint16_t heaterNum;
+    uint16_t nameLabel;
+    uint16_t localAddr;
+    uint16_t voltSwitcher;
+    uint16_t tempSwitcher;
+    uint16_t mqttEnable;
+    uint16_t tgEnable;
+    uint16_t httpEnable;
+
+    void updateValues() {
+        char buffer[50]; // Buffer for formatted strings
+
+        // Update control values using snprintf
+        snprintf(buffer, sizeof(buffer), "%c", batt.battery.heater.ecoTemp);
+        ESPUI.updateControlValue(ecoTempNum, String(buffer));
+
+        snprintf(buffer, sizeof(buffer), "%c", batt.battery.ecoVoltPrecent);
+        ESPUI.updateControlValue(ecoVoltNum, String(buffer));
+
+        snprintf(buffer, sizeof(buffer), "%c", batt.battery.heater.boostTemp);
+        ESPUI.updateControlValue(boostTemp, String(buffer));
+
+        snprintf(buffer, sizeof(buffer), "%c", batt.battery.boostVoltPrecent);
+        ESPUI.updateControlValue(boostVolts, String(buffer));
+
+        snprintf(buffer, sizeof(buffer), "%c", batt.battery.size);
+        ESPUI.updateControlValue(seriesConfigNum, String(batt.battery.size));
+
+        snprintf(buffer, sizeof(buffer), "%c V", batt.btryToVoltage(batt.battery.ecoVoltPrecent));
+        ESPUI.updateControlValue(ecoVoltLabel, String(buffer));
+
+        snprintf(buffer, sizeof(buffer), "%c V", batt.btryToVoltage(batt.battery.boostVoltPrecent));
+        ESPUI.updateControlValue(boostVoltLabel, String(buffer));
+
+        snprintf(buffer, sizeof(buffer), "%c", batt.battery.chrgr.current);
+        ESPUI.updateControlValue(text10, String(buffer));
+
+        snprintf(buffer, sizeof(buffer), "%d", batt.battery.capct);
+        ESPUI.updateControlValue(text12, String(buffer));
+
+        snprintf(buffer, sizeof(buffer), "%.1f h", batt.calculateChargeTime(batt.battery.ecoVoltPrecent, batt.battery.boostVoltPrecent));
+        ESPUI.updateControlValue(chargerTimeFeedback, String(buffer));
+        ESPUI.updateControlValue(chargerTimespan, String(buffer));
+
+        // snprintf(buffer, sizeof(buffer), "%.2f h", batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()));
+        // ESPUI.updateControlValue(chargerTimespan, String(buffer));
+
+        snprintf(buffer, sizeof(buffer), "%d", batt.battery.heater.resistance);
+        ESPUI.updateControlValue(heaterNum, String(buffer));
+
+        snprintf(buffer, sizeof(buffer), "%s", batt.battery.name.c_str());
+        ESPUI.updateControlValue(nameLabel, String(buffer));
+
+        snprintf(buffer, sizeof(buffer), "http://%s.local", batt.battery.name.c_str());
+        ESPUI.updateControlValue(localAddr, String(buffer));
+
+
+        // Update switchers
+        ESPUI.updateSwitcher(voltSwitcher, batt.getActivateVoltageBoost());
+        ESPUI.updateSwitcher(tempSwitcher, batt.getActivateTemperatureBoost());
+        ESPUI.updateSwitcher(mqttEnable, batt.battery.mqtt.enable);
+        ESPUI.updateSwitcher(tgEnable, batt.battery.telegram.enable;);
+        ESPUI.updateSwitcher(httpEnable, batt.battery.http.enable);
+    }
+};
+
+ControlData controlData;
+*/
+
+struct UIData {
+    char wlanIpAddress[16];      // Sufficient size for an IP address
+    char uptime[20];             // Sufficient size for uptime string
+    char batteryDOD[10];         // Sufficient size for battery DOD percentage
+    char temperature[10];        // Sufficient size for temperature
+    char boostVoltage[10];       // Sufficient size for boost voltage
+    char quickPanelVoltage[10];  // Sufficient size for quick panel voltage
+    char chargerTimespan[10];    // Sufficient size for charger timespan
+    char autoSeriesNum[10];      // Sufficient size for auto series number
+    char heatPower[10];          // Sufficient size for heat power
+    char heatStatus[10];         // Sufficient size for heat status
+    char calibStatus[50];        // Sufficient size for calibration status
+    char ecoVoltage[10];         // Sufficient size for eco voltage
+    char boostVoltageLabel[10];  // Sufficient size for boost voltage label
+};
+
+void preprocessUIData(UIData &data) {
+    snprintf(data.wlanIpAddress, sizeof(data.wlanIpAddress), "%s", WiFi.localIP().toString().c_str());
+    snprintf(data.uptime, sizeof(data.uptime), "%lu min", millis() / 60000);
+    snprintf(data.batteryDOD, sizeof(data.batteryDOD), "%d %%", batt.battery.voltageInPrecent);
+    snprintf(data.temperature, sizeof(data.temperature), "%.1f ℃", batt.battery.temperature);
+    snprintf(data.boostVoltage, sizeof(data.boostVoltage), "%.0f V", batt.btryToVoltage(batt.battery.boostVoltPrecent));
+    snprintf(data.quickPanelVoltage, sizeof(data.quickPanelVoltage), "%.1f V", batt.battery.milliVoltage / 1000.0);
+    snprintf(data.chargerTimespan, sizeof(data.chargerTimespan), "%.2f h", batt.calculateChargeTime(batt.battery.ecoVoltPrecent, batt.battery.boostVoltPrecent));
+    snprintf(data.autoSeriesNum, sizeof(data.autoSeriesNum), "%d", batt.getBatteryApprxSize());
+    snprintf(data.heatPower, sizeof(data.heatPower), "%.1f W", batt.battery.heater.maxPower * batt.battery.heater.pidOutput / batt.battery.heater.powerLimit);
+    snprintf(data.heatStatus, sizeof(data.heatStatus), "%s", batt.battery.init ? "Ok" : "Fail");
+    snprintf(data.calibStatus, sizeof(data.calibStatus), "%s (P: %.2f I: %.2f D: %.2f)", batt.battery.stune.done ? "Ok" : "Fail", batt.battery.heater.pidP, batt.battery.heater.pidI, batt.battery.heater.pidD);
+    snprintf(data.ecoVoltage, sizeof(data.ecoVoltage), "%.1f V", batt.btryToVoltage(batt.battery.ecoVoltPrecent));
+    snprintf(data.boostVoltageLabel, sizeof(data.boostVoltageLabel), "%.1f V", batt.btryToVoltage(batt.battery.boostVoltPrecent));
+}
+
+void updateUILabels(const UIData &data) {
+    ESPUI.updateLabel(ipText,           data.wlanIpAddress);
+    ESPUI.updateLabel(ipLabel,          data.wlanIpAddress);
+    ESPUI.updateLabel(labelId,          data.uptime);
+    ESPUI.updateLabel(voltLabel,        data.batteryDOD);
+    ESPUI.updateLabel(tempLabel,        data.temperature);
+    ESPUI.updateLabel(boostVoltLabel,   data.boostVoltage);
+    ESPUI.updateLabel(quickPanelVoltage, data.quickPanelVoltage);
+    ESPUI.updateLabel(chargerTimespan,  data.chargerTimespan);
+    ESPUI.updateLabel(autoSeriesNum,     data.autoSeriesNum);
+    ESPUI.updateLabel(heatPow,           data.heatPower);
+    ESPUI.updateLabel(heatOn,             data.heatStatus);
+    ESPUI.updateLabel(calibPass,          data.calibStatus);
+    ESPUI.updateLabel(ecoVoltLabel,       data.ecoVoltage);
+    ESPUI.updateLabel(boostVoltLabel,     data.boostVoltageLabel);
+}
+
 
 //Function Prototypes for ESPUI
 void connectWifi();
@@ -140,27 +303,13 @@ void textCallback(Control *sender, int type);
 void paramCallback(Control* sender, int type, int param);
 void generalCallback(Control *sender, int type);
 
-// Battery callbacks for Number input  --> Voltage
-void ecoVoltCallback(Control *sender, int type);
-void boostVoltCallback(Control *sender, int type);
-
 void httpEnableCallback(Control *sender, int type);
 void mqttEnableCallback(Control *sender, int type);
 void telegramEnableCallback(Control *sender, int type);
 
-// Battery callbacks for Number input  --> Temperature
-void ecoTempCallback(Control *sender, int type);
-void boostTempCallback(Control *sender, int type);
-
 // Battery callbacks for Switcher input  --> Boost & Temp
 void boostTempSwitcherCallback(Control *sender, int type);
 void boostVoltageSwitcherCallback(Control *sender, int type);
-void selectBattery(Control* sender, int type);
-
-bool checkAndLogVState();
-bool checkAndLogTState();
-bool checkAndLogVBoostState();
-bool checkAndLogTBoostState();
 
 String getVoltageStateName(VoltageState state);
 String getTempStateName(TempState state);
@@ -173,24 +322,33 @@ bool telegEn = false;
 
 
 
+
+
+
+
+
+
+UIData uiData; // Stack-allocated struct to hold UI data
+
 void setup() {
 
 	  Serial.begin(115200);
     batt.loadSettings(ALL);
     
-#if defined(ESP32)
-   WiFi.setHostname(batt.battery.name.c_str());  // needs to be before setUpUI!!   
-#else
-    WiFi.hostname(batt.battery.name.c_str());
-#endif
-	while(!Serial);
-	if(SLOW_BOOT) delay(5000); //Delay booting to give time to connect a serial monitor
+    WiFi.setHostname(batt.battery.name.c_str());  // needs to be before setUpUI!!   
+
+	  while(!Serial);
+
+	  if(SLOW_BOOT) delay(5000); //Delay booting to give time to connect a serial monitor
+
 	  connectWifi();
-	#if defined(ESP32)
+
 	  WiFi.setSleep(true); //For the ESP32: turn off sleeping to increase UI responsivness (at the cost of power use)
-	#endif
+
 	  setUpUI();
 }   
+
+
 void setUpUI() {
   ESPUI.setVerbosity(Verbosity::Verbose);
   ESPUI.captivePortal = true;
@@ -311,29 +469,7 @@ void setUpUI() {
                       ESPUI.setElementStyle(heatPow, "background-color: unset; width: 75%; color: white; font-size: small;");
 
 
-
-
-
-
-
-
-
-
-
                       ESPUI.setElementStyle(ESPUI.addControl(Label, "emptyLine", "", None, statsLabel), clearLabelStyle);  // NewlineLabel
-
-
-
-/*
-  pidPNum           = ESPUI.addControl(Number, "PID_Pnum", "", Emerald, group1, generalCallback);
-                      ESPUI.addControl(Min, "", "0", None, pidPNum);
-                      ESPUI.addControl(Max, "", "10", None, pidPNum);
-                      ESPUI.setElementStyle(pidPNum, "background-color: transparent; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield; width: 25%;");
-                      ESPUI.setElementStyle(ESPUI.addControl(Label, "Precent", " ", Emerald, group1), "font-size: medium; font-family: serif; width: 25%; text-align: left; background-color: unset; color: darkslategray;");
-
-
-*/
-
 
 
 /*
@@ -389,16 +525,6 @@ void setUpUI() {
                       ESPUI.setElementStyle(ESPUI.addControl(Label, "A", "Ohm", Emerald, group1), "font-size: medium; font-family: serif; width: 25%; text-align: left; background-color: unset; color: darkslategray;");
 //   PID P Term
 
-/*
-  pidPText          = ESPUI.addControl(Label, "PID_Ptext", "Proportional", None, group1);    
-                      ESPUI.setElementStyle(pidPText, "background-color: unset; width: 50%; text-align: left; font-size: small; color: darkslategray;");
-
-  pidPNum           = ESPUI.addControl(Number, "PID_Pnum", "", Emerald, group1, generalCallback);
-                      ESPUI.addControl(Min, "", "0", None, pidPNum);
-                      ESPUI.addControl(Max, "", "10", None, pidPNum);
-                      ESPUI.setElementStyle(pidPNum, "background-color: transparent; border: none; text-align: center; font-size: medium; -webkit-appearance: none; -moz-appearance: textfield; width: 25%;");
-                      ESPUI.setElementStyle(ESPUI.addControl(Label, "Precent", " ", Emerald, group1), "font-size: medium; font-family: serif; width: 25%; text-align: left; background-color: unset; color: darkslategray;");
-*/
 // ---------------------------
   text8             = ESPUI.addControl(Label, "Chrgr", "Battery Charger Info", Emerald, group1);
                       ESPUI.setElementStyle(text8, "text-align: left; font-size: small; font-family: serif; width: 100%; background-color: unset; color: black; margin-top: 20px; border-bottom: 1px solid darkslategray; padding-bottom: 5px;");
@@ -510,6 +636,10 @@ text7 = ESPUI.addControl(Label, "Perms", "Save to memory", Emerald, group1);
 
 saveButton = ESPUI.addControl(Button, "Memory", "Save", None, group1, [](Control *sender, int type) {
     if (type == B_UP) {
+
+      // const char* hostname = ESPUI.getControl(nameLabel)->value();
+
+        #ifdef MAINDEBUG
         Serial.println("Saving battery structs...");
         Serial.println(ESPUI.getControl(nameLabel)->value);
         Serial.println(ESPUI.getControl(ecoTempNum)->value);
@@ -520,28 +650,27 @@ saveButton = ESPUI.addControl(Button, "Memory", "Save", None, group1, [](Control
         Serial.println(ESPUI.getControl(text10)->value);
         Serial.println(ESPUI.getControl(text12)->value);
         Serial.println(ESPUI.getControl(heaterNum)->value);
-        //Serial.println(ESPUI.getControl(pidPNum)->value);
         Serial.println(ESPUI.getControl(nameLabel)->value);
         Serial.println("getControls..");
+        #endif
 
+        batt.battery.name = ESPUI.getControl(nameLabel)->value;                    // Serial.println("Hostname set");
 
-        if(batt.setHostname(ESPUI.getControl(nameLabel)->value)) Serial.println("Hostname set");
+        if(batt.setNominalString(ESPUI.getControl(seriesConfigNum)->value.toInt()));         // Serial.println("Nominal string set");
 
-        if(batt.setNominalString(ESPUI.getControl(seriesConfigNum)->value.toInt())) Serial.println("Nominal string set");
+        if(batt.setEcoTemp(ESPUI.getControl(ecoTempNum)->value.toInt()));                    // Serial.println("Eco temp set");
 
-        if(batt.setEcoTemp(ESPUI.getControl(ecoTempNum)->value.toInt())) Serial.println("Eco temp set");
+        if(batt.setEcoPrecentVoltage(ESPUI.getControl(ecoVoltNum)->value.toInt()));          // Serial.println("Eco precent voltage set");
 
-        if(batt.setEcoPrecentVoltage(ESPUI.getControl(ecoVoltNum)->value.toInt())) Serial.println("Eco precent voltage set");
+        if(batt.setBoostTemp(ESPUI.getControl(boostTemp)->value.toInt()));                   // Serial.println("Boost temp set");
 
-        if(batt.setBoostTemp(ESPUI.getControl(boostTemp)->value.toInt())) Serial.println("Boost temp set");
+        if(batt.setBoostPrecentVoltage(ESPUI.getControl(boostVolts)->value.toInt()));        // Serial.println("Boost precent voltage set");
 
-        if(batt.setBoostPrecentVoltage(ESPUI.getControl(boostVolts)->value.toInt())) Serial.println("Boost precent voltage set");
+        if(batt.setCharger(ESPUI.getControl(text10)->value.toInt()));                        // Serial.println("Charger set");
 
-        if(batt.setCharger(ESPUI.getControl(text10)->value.toInt())) Serial.println("Charger set");
+        if(batt.setResistance(ESPUI.getControl(heaterNum)->value.toInt()));                  // Serial.println("Resistance set");
 
-        if(batt.setResistance(ESPUI.getControl(heaterNum)->value.toInt())) Serial.println("Resistance set");
-
-        if(batt.setCapacity(ESPUI.getControl(text12)->value.toInt())) Serial.println("Capacity set");
+        if(batt.setCapacity(ESPUI.getControl(text12)->value.toInt()));                       // Serial.println("Capacity set");
 
         batt.saveSettings(SETUP); 
 
@@ -550,67 +679,7 @@ saveButton = ESPUI.addControl(Button, "Memory", "Save", None, group1, [](Control
 );
 
 
-        
-        /*
-        Serial.println(batt.getNominalString());
-        Serial.println("ecoP: " + batt.getEcoPrecentVoltage());
-
-        Serial.println("ecoT: " + batt.getEcoTemp());
-
-        Serial.println("BoostP: " + batt.getBoostPrecentVoltage());
-
-        Serial.println("BoostT: " + batt.getBoostTemp());
-
-        Serial.println("Chrgr: " + batt.getCharger());
-
-        Serial.println("Capacity: " + batt.getCapacity());
-
-        Serial.println("REsistance: " + batt.getResistance());
-
-        Serial.println("Hostname: " + batt.loadHostname());
-
-        Serial.println("PIDP:" + batt.getPidP()); */
-
-      // if (    batt.setNominalString(ESPUI.getControl(seriesConfigNum)->value.toInt())   )  {
-
-         //      batt.saveSettings(Battery::SettingsType::SETUP);
-
-              /*
-              Serial.print("ecoPrecent: ");
-              Serial.println(batt.setEcoPrecentVoltage(ESPUI.getControl(ecoVoltNum)->value.toInt()));
-
-              Serial.print("setEcoTemp ");
-              Serial.println(batt.setEcoTemp(ESPUI.getControl(ecoTempNum)->value.toInt()));
-
-              Serial.print("BoostPrecentV ");
-              Serial.println(batt.setBoostPrecentVoltage(ESPUI.getControl(boostVolts)->value.toInt()));
-
-              Serial.print("BoostTemp: ");
-              Serial.println(batt.setBoostTemp(ESPUI.getControl(boostTemp)->value.toInt()));
-
-              Serial.print("Charger: ");
-              Serial.println(batt.setCharger(ESPUI.getControl(text10)->value.toInt()));
-
-              Serial.print("Resistance: ");
-              Serial.println(batt.setResistance(ESPUI.getControl(heaterNum)->value.toInt()));
-
-              Serial.print("Capacity: ");
-              Serial.println(batt.setCapacity(ESPUI.getControl(text12)->value.toInt()));
-
-              Serial.print("PID_P: ");
-              Serial.println(batt.setPidP(ESPUI.getControl(pidPNum)->value.toFloat()));
-
-              Serial.print("Myname: ");
-              Serial.println(batt.saveHostname(ESPUI.getControl(nameLabel)->value));
-              
-              Serial.println("All ok! Saving settings to memory..."); 
-               // batt.saveSettings();
-               */
-      // } 
-      // else { 
-      //   Serial.println("Error: Invalid input"); 
-      // }
-
+   
 
 ESPUI.setElementStyle(saveButton, "width: 20%; text-align: center; font-size: medium; font-family: serif; margin-top: 20px; margin-bottom: 20px; border-radius: 15px;");
 
@@ -640,9 +709,11 @@ auto  wifiLabel    = ESPUI.addControl(Label, "WLAN", "", Peterriver, wifitab, ge
  wifiButton = ESPUI.addControl(Button, "Save", "Save", Peterriver, wifiLabel,
       [](Control *sender, int type) {
       if(type == B_UP) {
+        /*
         Serial.println("Saving credentials to NVS...");
         Serial.println(ESPUI.getControl(wifi_ssid_text)->value);
         Serial.println(ESPUI.getControl(wifi_pass_text)->value);
+        */
 
         preferences.begin("btry", false); // "wifi" is the namespace, false means read/write
         preferences.putString("wssid", ESPUI.getControl(wifi_ssid_text)->value);
@@ -680,11 +751,12 @@ httpPassword            = ESPUI.addControl(Label, "Battery Charger", "Password",
 
 uint16_t httpButton = ESPUI.addControl(Button, "Memory", "Save", None, httpLabel, [](Control *sender, int type) {
     if (type == B_UP) {
-
+        /*
         Serial.println("Saving battery structs...");
         Serial.println(ESPUI.getControl(httpUser)->value);  
         Serial.println(ESPUI.getControl(httpPass)->value); 
         Serial.println(ESPUI.getControl(httpEnable)->value);
+        */
 
         // Open Preferences with a namespace
         preferences.begin("btry", false); // "wifi" is the namespace, false means read/write
@@ -734,11 +806,13 @@ uint16_t httpButton = ESPUI.addControl(Button, "Memory", "Save", None, httpLabel
 // MQTT SaveButton  
   mqttButton = ESPUI.addControl(Button, "Memory", "Save", None, mqttLabel, [](Control *sender, int type) {
     if (type == B_UP) {
+        /*
         Serial.println("Saving battery structs...");
         Serial.println(ESPUI.getControl(mqttEnable)->value);
         Serial.println(ESPUI.getControl(mqttUser)->value); 
         Serial.println(ESPUI.getControl(mqttPass)->value);
         Serial.println(ESPUI.getControl(mqttIp)->value);
+        */
 
                 // Open Preferences with a namespace
         preferences.begin("btry", false); // "btry" is the namespace, false means read/write
@@ -777,10 +851,12 @@ tgLabelToken      = ESPUI.addControl(Label, "token", "Token", Dark, tgLabel);
 // telegram SaveButton
 uint16_t tgButton = ESPUI.addControl(Button, "Memory", "Save", None, tgLabel, [](Control *sender, int type) {
     if (type == B_UP) {
+      /*
         Serial.println("Saving telegram structs...");
         Serial.println(ESPUI.getControl(tgEnable)->value); 
         Serial.println(ESPUI.getControl(tgUser)->value);  
-        Serial.println(ESPUI.getControl(tgToken)->value); 
+        Serial.println(ESPUI.getControl(tgToken)->value);
+        */ 
 
         preferences.begin("btry", false); // "wifi" is the namespace, false means read/write
         preferences.putString("tgusr",    ESPUI.getControl(tgUser)->value);
@@ -790,8 +866,6 @@ uint16_t tgButton = ESPUI.addControl(Button, "Memory", "Save", None, tgLabel, []
 
     } });
   ESPUI.setElementStyle(tgButton,"width: 20%; text-align: center; font-size: medium; font-family: serif; margin-top: 20px; margin-bottom: 20px; border-radius: 15px;");
-  
-  // reset back to factory settings
 
         
 auto  resetLabel    = ESPUI.addControl(Label, "Back toFactory Settings", "Reset Settings", Peterriver, tgtab, generalCallback);
@@ -802,7 +876,7 @@ resetButton         = ESPUI.addControl(Button, "Memory", "Reset", None, resetLab
                        Serial.println("Resetting settings...");
                        batt.resetSettings(true);
                      } });
-                   ESPUI.setElementStyle(resetButton,"width: 20%; text-align: center; font-size: medium; font-family: serif; margin-top: 20px; margin-bottom: 20px; border-radius: 15px;");
+                    ESPUI.setElementStyle(resetButton,"width: 20%; text-align: center; font-size: medium; font-family: serif; margin-top: 20px; margin-bottom: 20px; border-radius: 15px;");
   
   /*
 
@@ -810,6 +884,9 @@ resetButton         = ESPUI.addControl(Button, "Memory", "Reset", None, resetLab
     You use this tab to enter the SSID and password of a wifi network to autoconnect to.
    
    *-----------------------------------------------------------------------------------------------------------*/
+  
+  
+  /*
     ESPUI.updateControlValue(ecoTempNum, String(batt.getEcoTemp()));
     ESPUI.updateControlValue(ecoVoltNum, String(batt.getEcoPrecentVoltage()));
     ESPUI.updateControlValue(boostTemp, String(batt.getBoostTemp()));
@@ -823,27 +900,21 @@ resetButton         = ESPUI.addControl(Button, "Memory", "Reset", None, resetLab
     ESPUI.updateControlValue(chargerTimespan, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
     ESPUI.updateControlValue(heaterNum, String(batt.getResistance()));
     ESPUI.updateControlValue(nameLabel, String(batt.battery.name));
-
     ESPUI.updateControlValue(localAddr, String("http://" + batt.battery.name + ".local"));
+*/
+
+    //controlData.updateValues(); 
+
+    updateControlValues();
+
+    ESPUI.updateSwitcher(voltSwitcher, batt.battery.voltBoost);
+    ESPUI.updateSwitcher(tempSwitcher, batt.battery.tempBoost);
+    ESPUI.updateSwitcher(mqttEnable, batt.battery.mqtt.enable);
+    ESPUI.updateSwitcher(tgEnable, batt.battery.telegram.enable);
+    ESPUI.updateSwitcher(httpEnable, batt.battery.http.enable);
 
 
-    ESPUI.updateSwitcher(voltSwitcher, batt.getActivateVoltageBoost());
-    ESPUI.updateSwitcher(tempSwitcher, batt.getActivateTemperatureBoost());
-    ESPUI.updateSwitcher(mqttEnable, batt.getMqttState());
-    ESPUI.updateSwitcher(tgEnable, batt.getTelegramEn());
-    ESPUI.updateSwitcher(httpEnable, batt.getHttpEn());
 
-    /*
-    if(batt.battery.telegram.enable) {
-        batt.telegramEnabled = true; // Enable the Telegram bot
-        batt.initBot(); // Initialize the Telegram bot
-    }
-    */
-
-
-//  if(httpEn)
-//    ESPUI.begin(hostname, httpUserAcc.c_str(), httpPassAcc.c_str());
-//  else
     ESPUI.begin("BatteryJeesus");
 
       //ESPUI.begin(HOSTNAME);
@@ -860,97 +931,7 @@ void generalCallback(Control *sender, int type) {
   Serial.print("' = ");
   Serial.println(sender->value);
 }
-/*
-    EcoVoltage Iumber Field - update to Voltage
-*/
-void ecoVoltCallback(Control* sender, int type) {
 
-  // ESPUI.updateLabel(ecoVoltLabel, String(batt.getEcoPrecentVoltage(), 0));
-
-   switch (type)
-    {
-    case S_ACTIVE:
-			if(batt.setEcoPrecentVoltage(sender->value.toInt()))
-        {
-          ESPUI.updateLabel(ecoVoltLabel, String(batt.btryToVoltage(sender->value.toInt()), 1));
-			   	Serial.print("Ecomode Voltage set to: ");
-          Serial.print(batt.getEcoPrecentVoltage());
-          Serial.println(" Precent");
-        }
-      else
-      {
-          ESPUI.updateLabel(ecoVoltLabel, String(batt.getEcoPrecentVoltage(), 1));
-			   	Serial.print("Ecomode Voltage set to: ");
-          Serial.print(batt.getEcoPrecentVoltage());
-          Serial.println(" Precent");
-      }
-		break;
-
-	case S_INACTIVE:
-		Serial.println("Ecomode Inactive");
-		break;
-  default:
-      Serial.print(type);
-      Serial.println("unknown type: EcoVCB");
-      break;
-  }
-  // ESPUI.updateLabel(boostVoltLabel, String(batt.btryToVoltage(sender->value.toInt()), 2));
-  // ESPUI.updateLabel(ecoVoltLabel, String(batt.btryToVoltage(sender->value.toInt()), 2));
-}
-/*
-    not used anymore? Scrap select battery?
-*/
-void selectBattery(Control* sender, int type) {
-	int current = batt.getNominalString();
-
-    switch (sender->value.toInt())
-    {
-    case 7:
-        Serial.print("7S Battery selected");
-        break;
-    case 10:
-        Serial.print("10S Battery selected");
-        break;
-    case 12:
-        Serial.print("12S Battery selected");
-        break;
-    case 13:
-        Serial.print("13S Battery selected");
-        break;
-    case 14:
-        Serial.print("14S Battery selected");
-        break;
-    case 16:
-        Serial.print("16S Battery selected");
-        break;
-    case 20:
-        Serial.print("20S Battery selected");
-        break;
-	default: 
-		current:
-		Serial.print("new Battery selected  ");
-    Serial.println(type);
-		break;
-    }
-
-/*
-    String battEmpty = "<br><br>      Empty             0%   =   " + String((sender->value.toInt() * (float)3 ), 1);
-    String battNom   = "    <br>      Nominal        50%   =   " + String((sender->value.toInt() * (float)3.7 ), 1);
-    String battFull =  "    <br>      Full              100%   =  " +  String((sender->value.toInt() * (float)4.2 ), 1);      
-    String allBatt = battEmpty + battNom + battFull;
-    ESPUI.updateLabel(battInfo, allBatt);
-  
-  Serial.print("CB: id(");
-  Serial.print(sender->id);
-  Serial.print(") Type(");
-  Serial.print(type);
-  Serial.print(") '");
-  Serial.print(sender->label);
-  Serial.print("' = ");
-  Serial.println(sender->value);
-*/
-
-}
 /*
 	The numbers value button, for defining a boost voltage level in voltage
 */
@@ -1036,101 +1017,7 @@ void telegramEnableCallback(Control *sender, int type) {
     }
 }
 
-/*
-    Boost Voltage CB
-*/
-void boostVoltCallback(Control* sender, int type) {
-  switch (type) {
-    case S_ACTIVE:
-			if(batt.setBoostPrecentVoltage(sender->value.toInt()))
-        {
-          int bootVoltLabel = sender->value.toInt();
-          Serial.print("Boost Voltage set to: ");
-          Serial.print(bootVoltLabel);
-          Serial.print("  ");
-          Serial.print(batt.btryToVoltage(sender->value.toInt()));
-          ESPUI.updateLabel(boostVoltLabel, String(batt.btryToVoltage(sender->value.toInt()), 1));
-			   	Serial.print("Boost VoltagePRecent set to: ");
-          Serial.print(batt.getBoostPrecentVoltage());
-          Serial.println(" V");
-        }
-      else 
-      {
-          ESPUI.updateLabel(boostVoltLabel, String(batt.getBoostPrecentVoltage(), 2));
-         	Serial.print("Boost VoltagePrecent set to: ");
-          Serial.print(batt.getBoostPrecentVoltage());
-          Serial.println(" V");
-      }	  
-		break;
 
-	case S_INACTIVE:
-		Serial.println("Ecomode Inactive");
-		break;
-  default:
-      Serial.print(type);
-      Serial.println("unknown type: BVCB");
-      break;
-    }
-}
-/*
-    Eco Temperature CallBack
-*/
-void ecoTempCallback(Control *sender, int type) {
-  switch (type) {
-    case S_ACTIVE:
-			if(batt.setEcoTemp(sender->value.toInt()))
-        {
-			   	Serial.print("Ecomode Temp set to: ");
-          Serial.print(batt.getEcoTemp());
-          Serial.println(" C");
-          // ESPUI.updateLabel(oldEcoTempLabel, String(batt.getEcoTemp(), 0));
-          
-        }
-      else
-       {
-        	Serial.print("Ecomode Failed: ");
-          Serial.print(batt.getEcoTemp());
-          Serial.println(" C");
-       }
-		break;
-	case S_INACTIVE:
-		Serial.println("Ecomode Inactive");
-		break;
-  default:
-      Serial.print(type);
-      Serial.println("unknown type: eTCB ");
-      break;
-  }
-}
-/*
-	  Temperature Boost Switch
-*/
-void boostTempCallback(Control *sender, int type) {
-  switch (type) {
-    case S_ACTIVE:
-			if(batt.setBoostTemp(sender->value.toInt()))
-        {
-			   	Serial.print("Boost Temp set to: ");
-          Serial.print(batt.getBoostTemp());
-          Serial.println(" C");
-          // ESPUI.updateLabel(oldBoostTempLabel, String(batt.getBoostTemp(), 0));
-        }
-      else
-      {
-         	Serial.print("Boost Temp set to: ");
-          Serial.print(batt.getBoostTemp());
-          Serial.println(" C");
-		  }
-		break;
-	case S_INACTIVE:
-		Serial.println("Boost Temp Inactive");
-		break;
-  default:
-      Serial.print(type);
-      Serial.println(" unknown type: BtCb ");
-    break;
-  }
-}
 /*
     Voltage Boost Switch 
 */
@@ -1184,9 +1071,13 @@ void  boostTempSwitcherCallback(Control *sender, int type) {
     }
 }
 
-unsigned long lastMsg = 0;
-const long interval = 15000; // 1 minute
-unsigned long mqttmillis = 0;
+
+
+
+
+
+
+
 
 void loop() {
 
@@ -1195,17 +1086,26 @@ void loop() {
   if(millis() - mittausmillit >= 3000)
   {
       mittausmillit = millis();
-      String wlanIpAddress;
 
+      preprocessUIData(uiData); // Preprocess data
+
+      updateUILabels(uiData); // Update labels with preprocessed data
 
       if(batt.battery.voltBoost) {
-        ESPUI.updateLabel(chargerTimeFeedback, String(batt.calculateChargeTime(batt.battery.voltageInPrecent, batt.getBoostPrecentVoltage()), 2) + " h");
+        ESPUI.updateLabel(chargerTimeFeedback, String(batt.calculateChargeTime(batt.battery.voltageInPrecent, batt.battery.boostVoltPrecent), 2) + " h");
       }
       else {
-        ESPUI.updateLabel(chargerTimeFeedback, String(batt.calculateChargeTime(batt.battery.voltageInPrecent, batt.getEcoPrecentVoltage()), 2) + " h");
+        ESPUI.updateLabel(chargerTimeFeedback, String(batt.calculateChargeTime(batt.battery.voltageInPrecent, batt.battery.ecoVoltPrecent), 2) + " h");
       }
       
 
+
+
+
+
+
+      /*
+      String wlanIpAddress;
       wlanIpAddress = WiFi.localIP().toString();
       ESPUI.updateLabel(ipText, wlanIpAddress);
       ESPUI.updateLabel(ipLabel, wlanIpAddress);
@@ -1217,12 +1117,13 @@ void loop() {
       ESPUI.updateLabel(quickPanelVoltage, String(batt.getCurrentVoltage(), 1) + " V");
       ESPUI.updateLabel(chargerTimespan, String(batt.calculateChargeTime(batt.getEcoPrecentVoltage(), batt.getBoostPrecentVoltage()), 2) + " h");
       ESPUI.updateLabel(autoSeriesNum, String(batt.getBatteryApprxSize()));
-      ESPUI.updateLabel(heatPow, String((batt.battery.heater.pidOutput / 255) * 100) + " %" + "    " + String(batt.battery.heater.maxPower * (batt.battery.heater.pidOutput / float(255))) + " W");
+      ESPUI.updateLabel(heatPow, String(batt.battery.heater.maxPower * batt.battery.heater.pidOutput / batt.battery.heater.powerLimit) + " W");
       ESPUI.updateLabel(heatOn, String(batt.battery.init ? "Ok" : "Fail"));
       ESPUI.updateLabel(calibPass, String(batt.battery.stune.done ? "Ok" : "Fail"));
       ESPUI.updateLabel(ecoVoltLabel, String(batt.btryToVoltage(batt.getEcoPrecentVoltage()), 1) + " V");
       ESPUI.updateLabel(boostVoltLabel, String(batt.btryToVoltage(batt.getBoostPrecentVoltage()), 1) + " V");
-   
+      */
+
 
       // Check and log voltage state
       if (batt.battery.vState != batt.battery.prevVState) {
@@ -1241,82 +1142,32 @@ void loop() {
 
 }
 
-bool checkAndLogVState() {
-    if ((batt.battery.vState != batt.battery.prevVState)) return true;
-    else return false;
-}
-
-bool checkAndLogTState() {
-    if (batt.battery.tState != batt.battery.prevTState) return true;
-    else return false;
-}
-
-bool checkAndLogVBoostState() {
-    if ( batt.battery.voltBoost != previousVoltBoostActive) {
-        previousVoltBoostActive = batt.battery.voltBoost;
-        return true;
-    }
-    else return false;
-}
-
-bool checkAndLogTBoostState() {
-    if (batt.battery.tempBoost != previousTempBoostActive) {
-      previousTempBoostActive = batt.battery.tempBoost;
-      return true;
-    }
-    else return false;
-}
-
-/*
-void connectWifi() {
-  Serial.println("Connecting to WiFi...");
-  WiFi.begin(batt.battery.wlan.ssid.c_str(), batt.battery.wlan.pass.c_str());
-  if(WiFi.status() != WL_CONNECTED) {
-    Serial.println("Connecting to WiFi...");
-  }
-  Serial.println("Connected to WiFi");
-  WiFi.setHostname(batt.battery.name.c_str());
-}
-*/
-
-
 void connectWifi() {
 	int connect_timeout;
 
-#if defined(ESP32)
 	WiFi.setHostname(batt.battery.name.c_str());
-#else
-	WiFi.hostname(HOSTNAME);
-#endif
-	Serial.println("Begin wifi...");
 
 	//Load credentials from EEPROM 
 	if(!(FORCE_USE_HOTSPOT)) {
 		yield();
-	
-		//Try to connect with stored credentials, fire up an access point if they don't work.
-		#if defined(ESP32)
 			WiFi.begin(batt.battery.wlan.ssid.c_str(), batt.battery.wlan.pass.c_str());
-		#else
-			WiFi.begin(stored_ssid, stored_pass);
-		#endif
+    Serial.println("Connecting to WiFi...");
 		connect_timeout = 28; //7 seconds
 		while (WiFi.status() != WL_CONNECTED && connect_timeout > 0) {
 			delay(250);
-			Serial.print(".");
 			connect_timeout--;
 		}
 	}
 	
 	if (WiFi.status() == WL_CONNECTED) {
-		Serial.println(WiFi.localIP());
-		Serial.println("Wifi started");
+		//SPLN("Wifi started");
+    Serial.println("IP: " + WiFi.localIP().toString());
 
 		if (!MDNS.begin(batt.battery.name.c_str())) {
-			Serial.println("Error setting up MDNS responder!");
+			//SP("Error setting up MDNS responder!");
 		}
 	} else {
-		Serial.println("\nCreating access point...");
+		//SP("Creating access point...");
 		WiFi.mode(WIFI_AP);
 		WiFi.softAPConfig(IPAddress(192, 168, 1, 1), IPAddress(192, 168, 1, 1), IPAddress(255, 255, 255, 0));
 		WiFi.softAP(HOSTNAME);
@@ -1324,12 +1175,10 @@ void connectWifi() {
 		connect_timeout = 20;
 		do {
 			delay(250);
-			Serial.print(",");
 			connect_timeout--;
 		} while(connect_timeout);
 	}
 }
-
 
 void textCallback(Control *sender, int type) {
 	//This callback is needed to handle the changed values, even though it doesn't do anything itself.
@@ -1340,16 +1189,17 @@ void textCallback(Control *sender, int type) {
 // The extended param can be used to pass additional information
 void paramCallback(Control* sender, int type, int param)
 {
-    Serial.print("CB: id(");
-    Serial.print(sender->id);
-    Serial.print(") Type(");
-    Serial.print(type);
-    Serial.print(") '");
-    Serial.print(sender->label);
-    Serial.print("' = ");
-    Serial.println(sender->value);
-    Serial.print("param = ");
-    Serial.println(param);
+  /*
+   SP("CB: id(");
+   SP(sender->id);
+   SP(") Type(");
+   SP(type);
+   SP(") '");
+   SP(sender->label);
+   SP("' = ");
+   SP(sender->value);
+   SPLN(param);
+   */
 }
 
 String getVoltageStateName(VoltageState state) {
@@ -1374,6 +1224,6 @@ String getTempStateName(TempState state) {
         case BOOST_READY: return "Boost Temp Ready";
         case TEMP_WARNING: return "Temp Warning";
         case UNKNOWN_TEMP: return "UNKNOWN TEMP ALERT";
-        default: return "COLD";
+        default: return "ERROR";
     }
 }

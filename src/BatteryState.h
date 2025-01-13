@@ -3,6 +3,7 @@
 #define BATTERY_STATE_H
 
 #include <Arduino.h> // Include necessary libraries
+#include <cstring>
 
 // Forward declarations for state types
 enum VoltageState { 
@@ -31,7 +32,7 @@ private:
     int error;
 public:
     // Member variables
-    String          name;                // Name of the battery
+    String            name;                // Name of the battery
     uint8_t         size;                // Size of the battery
     bool            init;                // Init of the battery
     uint8_t         initError;           // Init error of the battery
