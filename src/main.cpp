@@ -174,16 +174,16 @@ struct UIData {
 
 void preprocessUIData(UIData &data) {
     snprintf(data.wlanIpAddress, sizeof(data.wlanIpAddress), "%s", WiFi.localIP().toString().c_str());
-    snprintf(data.uptime, sizeof(data.uptime), "%lu min", millis() / 60000);
+    snprintf(data.uptime, sizeof(data.uptime), "%lu min", static_cast<unsigned long>(millis()/60000));
     snprintf(data.batteryDOD, sizeof(data.batteryDOD), "%d %%", batt.battery.voltageInPrecent);
     snprintf(data.temperature, sizeof(data.temperature), "%.1f ℃", batt.battery.temperature);
     snprintf(data.boostVoltage, sizeof(data.boostVoltage), "%.0f V", batt.btryToVoltage(batt.battery.boostVoltPrecent));
-    snprintf(data.quickPanelVoltage, sizeof(data.quickPanelVoltage), "%.1f V", (static_cast<float>(batt.battery.milliVoltage  / 1000.0)));
+    snprintf(data.quickPanelVoltage, sizeof(data.quickPanelVoltage), "%.1f V", (static_cast<float>(batt.battery.milliVoltage/1000.0)));
     snprintf(data.chargerTimespan, sizeof(data.chargerTimespan), "%.2f h", batt.calculateChargeTime(batt.battery.ecoVoltPrecent, batt.battery.boostVoltPrecent));
     snprintf(data.autoSeriesNum, sizeof(data.autoSeriesNum), "%d", batt.getBatteryApprxSize());
-    snprintf(data.heatPower, sizeof(data.heatPower), "%.1f W", batt.battery.heater.maxPower * batt.battery.heater.pidOutput / batt.battery.heater.powerLimit);
+    snprintf(data.heatPower, sizeof(data.heatPower), "%.1f W", static_cast<float>(batt.battery.heater.maxPower * batt.battery.heater.pidOutput/batt.battery.heater.powerLimit));
     snprintf(data.heatStatus, sizeof(data.heatStatus), "%s", batt.battery.init ? "Ok" : "Fail");
-    snprintf(data.calibStatus, sizeof(data.calibStatus), "%s (P: %.2f I: %.2f D: %.2f)", batt.battery.stune.done ? "Ok" : "Fail", batt.battery.heater.pidP, batt.battery.heater.pidI, batt.battery.heater.pidD);
+    snprintf(data.calibStatus, sizeof(data.calibStatus), "%s - (P:%.2f I:%.2f D:%.2f)", batt.battery.stune.done ? "Ok" : "Fail", batt.battery.heater.pidP, batt.battery.heater.pidI, batt.battery.heater.pidD);
     snprintf(data.ecoVoltage, sizeof(data.ecoVoltage), "%.1f V", batt.btryToVoltage(batt.battery.ecoVoltPrecent));
     snprintf(data.boostVoltageLabel, sizeof(data.boostVoltageLabel), "%.1f V", batt.btryToVoltage(batt.battery.boostVoltPrecent));
 }
