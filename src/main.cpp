@@ -1,6 +1,5 @@
 #include "Battery.h"
 #include <Arduino.h>
-#include <EEPROM.h>
 #include <OneWire.h>
 #include <string>
 #include <functional>
@@ -42,8 +41,8 @@ String logTime;
 String logBuffet;
 
 //UI handles
-uint16_t tab1, tab2, tab3, tab4, tab5;
 String clearLabelStyle, switcherLabelStyle;
+
 uint16_t battInfo, permInfo;
 uint16_t labelId, APSwitcher, ipLabel, ipText, statsLabel, uptimeLabel, ipaddrLabel, mdnsLabel, mdnsaddrLabel;
 uint16_t httpUserAccess, httpUsername, httpPassword;
@@ -95,6 +94,10 @@ uint16_t saveButton;
 uint16_t textSeriesConfig, seriesConfigNum, vertgroupswitcher, chargerTimeFeedback;
 
 uint16_t autoSeriesDet, autoSeriesNum;
+
+
+uint16_t wifiLabel, httpLabel, mqttLabel, tgLabel;
+uint16_t tab1, tab2, tgtab, wifitab;
 
 uint16_t headerTimeLabel, headerTempLabel, headerVoltage, headerPrecent;
 
@@ -234,13 +237,13 @@ UIData uiData; // Stack-allocated struct to hold UI data
 ///////////////////////////////////////////////////////////////////////////////////////////
 void setup() {
 
-  batt.setup();
+
 
 	  Serial.begin(115200);
 
-    batt.loadSettings(ALL);
-    
-    WiFi.setHostname(batt.battery.name.c_str());  // needs to be before setUpUI!!   
+    while(!Serial);
+
+    batt.setup();
 
 	  connectWifi();
 
@@ -251,13 +254,13 @@ void setup() {
 ///////////////////////////////////////////////////////////////////////////////////////////
 
 void setUpUI() {
-  ESPUI.setVerbosity(Verbosity::Verbose);
+  ESPUI.setVerbosity(Verbosity::Quiet);
   ESPUI.captivePortal = true;
   ESPUI.sliderContinuous = false;
-    auto tab1 = ESPUI.addControl(Tab, "Info", "Info");
-    auto tab2 = ESPUI.addControl(Tab, "Setup", "Setup");
-    auto wifitab = ESPUI.addControl(Tab, "wifitab", "WiFi");
-    auto tgtab = ESPUI.addControl(Tab, "telegram", "Telegram");
+    tab1 = ESPUI.addControl(Tab,    "Info", "Info");
+    tab2 = ESPUI.addControl(Tab,    "Setup", "Setup");
+    wifitab = ESPUI.addControl(Tab, "wifitab", "WiFi");
+    tgtab = ESPUI.addControl(Tab,   "telegram", "Telegram");
 
   /*-
    * Tab: Basic Controls
@@ -269,7 +272,10 @@ void setUpUI() {
   switcherLabelStyle = "width: 25%; background-color: unset;";
 
 // ###########################################   QuickTAB  ########################################################
-  auto vertgroupswitcher = ESPUI.addControl(Label, "QuickPanel", "", Peterriver);
+
+
+  vertgroupswitcher = ESPUI.addControl(Label, "QuickPanel", "quickPanel", Peterriver, tab1);
+
   ESPUI.setVertical(vertgroupswitcher); 
   ESPUI.setElementStyle(vertgroupswitcher, "background-color: unset;");
 
@@ -581,7 +587,7 @@ ESPUI.setElementStyle(saveButton, "width: 20%; text-align: center; font-size: me
       WLAN Wifi tab 
 
 */
-auto  wifiLabel    = ESPUI.addControl(Label, "WLAN", "", Peterriver, wifitab, generalCallback);
+  wifiLabel    = ESPUI.addControl(Label, "WLAN", "", Peterriver, wifitab, generalCallback);
                     ESPUI.setElementStyle(wifiLabel, "background-color: unset; width: 100%; color: black; font-size: medium;         ");
 
   wifiLabelSSID = ESPUI.addControl(Label, "ssidLabel", "SSID:", Turquoise, wifiLabel);
@@ -621,7 +627,7 @@ auto  wifiLabel    = ESPUI.addControl(Label, "WLAN", "", Peterriver, wifitab, ge
 //ESPUI.separator("HTTP");
 // ----- HTTP 
 
-auto      httpLabel    = ESPUI.addControl(Label, "HTTP", "Enable HTTP", Peterriver, wifitab, generalCallback);
+        httpLabel    = ESPUI.addControl(Label, "HTTP", "Enable HTTP", Peterriver, wifitab, generalCallback);
 
           httpEnable   = ESPUI.addControl(Switcher, "Enable HTTP", "", None, httpLabel, httpEnableCallback);
                           ESPUI.setElementStyle(ESPUI.addControl(Label, "emptyLine", "", None, httpLabel), clearLabelStyle);
@@ -664,7 +670,7 @@ uint16_t httpButton = ESPUI.addControl(Button, "Memory", "Save", None, httpLabel
 // ESPUI.separator("MQTT");
 //  --- MQTT
         
- auto   mqttLabel    = ESPUI.addControl(Label, "MQTT", "Enable MQTT", Peterriver, wifitab, generalCallback);
+     mqttLabel    = ESPUI.addControl(Label, "MQTT", "Enable MQTT", Peterriver, wifitab, generalCallback);
                         ESPUI.setElementStyle(mqttLabel, "font-family: serif; background-color: unset; width: 100%;");
 
 // MQTT ENABLE
@@ -722,7 +728,7 @@ uint16_t httpButton = ESPUI.addControl(Button, "Memory", "Save", None, httpLabel
 
 //  --- Telegram
       
-auto  tgLabel    = ESPUI.addControl(Label, "Telegram", "Enable Telegram", Peterriver, tgtab, generalCallback);
+    tgLabel    = ESPUI.addControl(Label, "Telegram", "Enable Telegram", Peterriver, tgtab, generalCallback);
                     ESPUI.setElementStyle(tgLabel, "font-family: serif; background-color: unset; width: 100%; ");
 
       tgEnable   = ESPUI.addControl(Switcher, "Enable Telegram", "", None, tgLabel, telegramEnableCallback);
@@ -743,7 +749,7 @@ tgLabelToken      = ESPUI.addControl(Label, "token", "Token", Dark, tgLabel);
 
 
 // telegram SaveButton
-uint16_t tgButton = ESPUI.addControl(Button, "Memory", "Save", None, tgLabel, [](Control *sender, int type) {
+  tgButton = ESPUI.addControl(Button, "Memory", "Save", None, tgLabel, [](Control *sender, int type) {
     if (type == B_UP) {
       /*
         Serial.println("Saving telegram structs...");
@@ -762,7 +768,7 @@ uint16_t tgButton = ESPUI.addControl(Button, "Memory", "Save", None, tgLabel, []
   ESPUI.setElementStyle(tgButton,"width: 20%; text-align: center; font-size: medium; font-family: serif; margin-top: 20px; margin-bottom: 20px; border-radius: 15px;");
 
         
-auto  resetLabel    = ESPUI.addControl(Label, "Back toFactory Settings", "Reset Settings", Peterriver, tgtab, generalCallback);
+   resetLabel    = ESPUI.addControl(Label, "Back toFactory Settings", "Reset Settings", Peterriver, tgtab, generalCallback);
                       ESPUI.setElementStyle(resetLabel, "font-family: serif; background-color: unset; width: 100%; ");
 
 resetButton         = ESPUI.addControl(Button, "Memory", "Reset", None, resetLabel, [](Control *sender, int type) {
@@ -1035,6 +1041,67 @@ void loop() {
 void connectWifi() {
 	int connect_timeout;
 
+#if defined(ESP32)
+	WiFi.setHostname(batt.battery.name.c_str());
+#else
+	WiFi.hostname(HOSTNAME);
+#endif
+	Serial.println("Begin wifi...");
+
+	//Load credentials from EEPROM
+	if(!(FORCE_USE_HOTSPOT)) {
+		yield();
+
+
+
+		//Try to connect with stored credentials, fire up an access point if they don't work.
+		#if defined(ESP32)
+			WiFi.begin(batt.battery.wlan.ssid.c_str(), batt.battery.wlan.pass.c_str());
+		#else
+			WiFi.begin(batt.battery.wlan.ssid.c_str(), batt.battery.wlan.pass.c_str());
+		#endif
+		connect_timeout = 28; //7 seconds
+		while (WiFi.status() != WL_CONNECTED && connect_timeout > 0) {
+			delay(250);
+			Serial.print(".");
+			connect_timeout--;
+		}
+	}
+
+	if (WiFi.status() == WL_CONNECTED) {
+		Serial.println(WiFi.localIP());
+		Serial.println("Wifi started");
+
+		if (!MDNS.begin(batt.battery.name.c_str())) {
+			Serial.println("Error setting up MDNS responder!");
+		}
+	} else {
+		Serial.println("\nCreating access point...");
+		WiFi.mode(WIFI_AP);
+		WiFi.softAPConfig(IPAddress(192, 168, 1, 1), IPAddress(192, 168, 1, 1), IPAddress(255, 255, 255, 0));
+		WiFi.softAP(HOSTNAME);
+
+		connect_timeout = 20;
+		do {
+			delay(250);
+			Serial.print(",");
+			connect_timeout--;
+		} while(connect_timeout);
+	}
+}
+
+
+
+
+
+
+
+
+
+/*
+void connectWifi() {
+	int connect_timeout;
+
 	WiFi.setHostname(batt.battery.name.c_str());
 
 	//Load credentials from EEPROM 
@@ -1054,7 +1121,7 @@ void connectWifi() {
     Serial.println("IP: " + WiFi.localIP().toString());
 
 		if (!MDNS.begin(batt.battery.name.c_str())) {
-			//SP("Error setting up MDNS responder!");
+			Serial.println("Error setting up MDNS responder!");
 		}
 	} else {
 		//SP("Creating access point...");
@@ -1069,6 +1136,8 @@ void connectWifi() {
 		} while(connect_timeout);
 	}
 }
+*/
+
 
 void textCallback(Control *sender, int type) {
 	//This callback is needed to handle the changed values, even though it doesn't do anything itself.
@@ -1091,6 +1160,8 @@ void paramCallback(Control* sender, int type, int param)
    SPLN(param);
    */
 }
+
+
 
 String getVoltageStateName(VoltageState state) {
     switch (state) {

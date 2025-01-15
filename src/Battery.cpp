@@ -12,6 +12,7 @@
 #define LOGS_SIZE 10
 
 
+/*
 struct logEntry {
     int voltageState;
     int tempState;
@@ -24,6 +25,7 @@ struct statesLog {
     logEntry entries[LOGS_SIZE];
     int index;
 };
+*/
 
 Battery::~Battery() {
     digitalWrite(heaterPin, LOW);    // Turn off heater
@@ -39,6 +41,8 @@ Battery::~Battery() {
 }
 
 void Battery::setup() {
+
+
 
         pinMode(chargerPin, OUTPUT);
         pinMode(heaterPin, OUTPUT);
@@ -59,7 +63,19 @@ void Battery::setup() {
         yellow.start();
         yellow.setDelay(1000, 0);
 
-    loadSettings(ALL);
+        loadSettings(ALL);
+
+        Serial.print("Tuning Configure: ");
+        tuner.Configure(        battery.stune.inputSpan, 
+                                battery.stune.outputSpan, 
+                                battery.stune.outputStart, 
+                                battery.stune.outputStep, 
+                                battery.stune.testTimeSec, 
+                                battery.stune.settleTimeSec, 
+                                battery.stune.samples);
+
+        Serial.print("Tuning SetEmergencyStop: ");
+        tuner.SetEmergencyStop(battery.stune.tempLimit);
 }
 
 void Battery::loop() {
@@ -95,7 +111,21 @@ bool Battery::batteryInit() {
 
         if(battery.size > 6 && battery.size < 21) 
         {
-            if (abs(battery.sizeApprx - battery.size) <= 3) 
+
+            #ifdef DEBUG
+                Serial.println(" ");    
+                Serial.println("Battery init success: ");
+                Serial.print(" Size: ");
+                Serial.print(battery.size);
+                Serial.print(" SizeApprx: ");
+                Serial.println(battery.sizeApprx);
+                Serial.print(" Difference: ");
+                Serial.print(battery.size - battery.sizeApprx);
+                Serial.print(" & ");
+                Serial.print(battery.sizeApprx - battery.size);
+            #endif
+
+            if (battery.sizeApprx - battery.size <= 3 || battery.size - battery.sizeApprx <= 3) 
             {
                     battery.init = true;
                     #ifdef DEBUG
@@ -150,17 +180,6 @@ void Battery::adjustHeaterSettings() {
 
 void Battery::runTune() {
     if (!battery.stune.done) {
-
-
-        tuner.Configure(        battery.stune.inputSpan, 
-                                battery.stune.outputSpan, 
-                                battery.stune.outputStart, 
-                                battery.stune.outputStep, 
-                                battery.stune.testTimeSec, 
-                                battery.stune.settleTimeSec, 
-                                battery.stune.samples);
-
-        tuner.SetEmergencyStop(battery.stune.tempLimit);
 
         // boostButtonPress_Time + lenght_stuneRunTime is greater than current time
         if(battery.stune.startTime + (battery.stune.lenTime * 1000)  > millis()) {
@@ -258,10 +277,16 @@ void Battery::manageTuning() {
             if (batteryInit()) 
                 {
                 tuningState = TUNING; // Move to TUNING state
+                #ifdef DEBUG
+                    Serial.println("Tuning started");
+                #endif
                 }
             else 
                 {
-                batteryInit();
+                tuningState = ERROR;
+                #ifdef DEBUG
+                    Serial.println("Tuning failed");
+                #endif
                 }
             break;
 
@@ -270,17 +295,26 @@ void Battery::manageTuning() {
         if(battery.stune.done)
             {
             tuningState = INITIALIZING;
+            #ifdef DEBUG
+                Serial.println("Tuning done");
+            #endif
             }
         else 
             {
             runTune(); // Run the tuning process
+            #ifdef DEBUG
+                // Serial.println("Tuning running");
+            #endif
             }
 
             break;
 
         case INITIALIZING:
 
-        if(!battery.heater.enable) {
+        if(battery.heater.enable) {
+            #ifdef DEBUG
+            Serial.println("heater enabled");
+            #endif
 
             if(!battery.stune.firstRun) 
                 {
@@ -296,14 +330,17 @@ void Battery::manageTuning() {
                 heaterPID.SetAntiWindupMode(QuickPID::iAwMode::iAwClamp);
                 battery.stune.firstRun = true;
                 }
-            else 
+            else
                 { 
                     tuningState = IDLE;
-                    battery.heater.init = true;  
+                    battery.heater.init = true;
+                    #ifdef DEBUG
+                        Serial.println("Tuning done");
+                    #endif
                 }
 
         break;
-        case IDLE:    
+        case IDLE:
             // Serial.println("Tuning done");
             break;
 
@@ -324,21 +361,36 @@ void Battery::handleBatteryControl() {
     if (millis() - lastVoltageStateTime >= 2500) {
         lastVoltageStateTime = millis();
 
-        if(millis() - tuningMillis > 60000) {
-            tuningMillis = millis();
+        if(millis() - batteryInitTime >= 60000) {
+            batteryInitTime = millis();
             battery.heater.init = false;
+            tuningState = STARTUP;
         }
+
+
+        Serial.println(" ");
 
         battery.prevVState = battery.vState;    // copying the previous state to the previous state
         battery.prevTState = battery.tState;    // copying the previous state to the previous state
 
-        if(battery.temperature > 0 && battery.temperature < 40) { 
+        if(battery.temperature > float(0) && battery.temperature < float(40)) { 
+
             battery.vState = getVoltageState(battery.voltageInPrecent);  
+            #ifdef DEBUG
+                Serial.print("1stIF:");
+                Serial.print(static_cast<int>(battery.vState));
+            #endif
         }
         else {   
             charger(false);
             battery.tState = getTempState(battery.temperature);         
+            #ifdef DEBUG
+                Serial.print("ERRORTEMPSTATE");
+                Serial.print(static_cast<int>(battery.tState));
+            #endif
+            battery.vState = ALERT;
         }
+
 
     switch (battery.vState) {
             case ALERT:
@@ -510,16 +562,18 @@ void Battery::handleBatteryControl() {
 
     Serial.print(" Temp: ");  
     Serial.print(battery.temperature);
-    Serial.print(" Vstate: ");
+    Serial.print(" Vst: ");
     Serial.print(static_cast<int>(battery.vState));
-    Serial.print(", Tstate: ");
+    Serial.print(", Tst: ");
     Serial.print(static_cast<int>(battery.tState)); 
-    Serial.print(" Power Limit: "); Serial.print(battery.heater.powerLimit);
+    Serial.print(" PowLim: ");
+    Serial.print(battery.heater.powerLimit);
 
     Serial.print(" Oput: "); 
     Serial.print(battery.heater.pidOutput);
+    Serial.print(" Sp: ");
+    Serial.print(battery.heater.pidSetpoint);
     Serial.print(" ");
-    Serial.println(battery.heater.pidSetpoint);
 
     #endif
 
@@ -960,6 +1014,8 @@ void Battery::readVoltage(uint32_t intervalSeconds) {
         battery.adc.avg = battery.adc.sum / battery.adc.mAvg; // Calculate average
         battery.milliVoltage = esp_adc_cal_raw_to_voltage(battery.adc.avg, &characteristics) * float(30.81);
 
+
+
         // Check if the moving average is within the valid range
         if (battery.milliVoltage > 9000 && battery.milliVoltage < 100000) {
  
@@ -970,15 +1026,28 @@ void Battery::readVoltage(uint32_t intervalSeconds) {
             }
             */
 
+        #ifdef DEBUG
+            Serial.print(" MV: ");
+            Serial.print(battery.milliVoltage);
+            Serial.print(" ");
+        #endif
+
            battery.sizeApprx = determineBatterySeries(battery.milliVoltage);
 
+            /*
+            #ifdef DEBUG
+                Serial.print("Series: ");
+                Serial.println(battery.sizeApprx);
+           #endif
+           */
+
             battery.voltageInPrecent = getVoltageInPercentage(battery.milliVoltage);
+
         } else {
             battery.milliVoltage = 1; // Set the accurate voltage to 1 in case of reading error
             battery.voltageInPrecent = 1; // Set the voltage in percentage to 1 in case of reading error
-            Serial.println(" Voltage reading error ");
-            Serial.print(" Voltage: ");
-            Serial.println(battery.adc.avg);
+            Serial.print(" Voltage reading error ");
+            Serial.print(battery.adc.avg);
             battery.init = false;
         }
         
@@ -1008,6 +1077,12 @@ float Battery::btryToVoltage(int precent) {
 int Battery::getVoltageInPercentage(uint32_t milliVoltage) {
     uint32_t minVoltage = 3000;  // Minimum voltage in millivolts (3V)
     uint32_t maxVoltage = 4200;  // Maximum voltage in millivolts (4.2V)
+
+    if(battery.size == 0) {
+        Serial.print(" Batt Size is 0");
+        digitalWrite(redLed, LOW);
+        return 0;
+    }
 
     milliVoltage = constrain(milliVoltage, 25000, 100000);
     if (milliVoltage < (minVoltage * battery.size)) {
@@ -1318,7 +1393,7 @@ void Battery::charger(bool chargerState) {
         #endif
     }
 }
-
+/*
 bool Battery::isValidHostname(const String& hostname) {
     // Check length
     if (hostname.length() > 12) {
@@ -1336,7 +1411,7 @@ bool Battery::isValidHostname(const String& hostname) {
     return true; // Valid hostname
 }
 
-
+*/
 /*
 void Battery::setHostname(const char* hostname) {
     strncpy(battery.name, hostname, 32 - 1); // Copy the hostname
@@ -1348,6 +1423,7 @@ const char* Battery::getHostname() const {
 }
 */
 
+/*
 void Battery::setHostname(const String& hostname) {
 
     // if(isValidHostname(hostname)) {
@@ -1356,6 +1432,7 @@ void Battery::setHostname(const String& hostname) {
     //}
     //else return false;
 }
+*/
 
 void Battery::getHostname() {
     preferences.begin("btry", true);
@@ -1364,7 +1441,7 @@ void Battery::getHostname() {
     battery.name = hostname;
 }
 
-bool Battery::setResistance(uint8_t resistance) {
+bool Battery::setResistance(int resistance) {
     if (resistance > 10 && resistance < 255) {
         battery.heater.resistance = resistance;
         return true;
@@ -1488,6 +1565,7 @@ bool Battery::setHttpEn(bool status) {
     }
 }
 
+/*
 bool Battery::telegramSendMessage(const char *message) {
 #ifdef TELEGRAM_ENABLED
   WiFiClientSecure client;
@@ -1509,6 +1587,7 @@ bool Battery::telegramSendMessage(const char *message) {
     return false;
 #endif
 }
+*/
 
 
 

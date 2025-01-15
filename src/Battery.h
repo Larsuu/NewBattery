@@ -19,8 +19,8 @@
 #include <WiFiClient.h>
 #include "BatteryState.h"
 #include <esp_adc_cal.h>
-#include <WiFiClientSecure.h>
-#include <HTTPClient.h>
+// #include <WiFiClientSecure.h>
+// #include <HTTPClient.h>
 
 
 
@@ -115,8 +115,8 @@ public:
     char logBuffer[50] = {0};
     int logIndex = 0;
     uint32_t lastLogTime = 0;
-    int lastVoltageState = -1;
-    int lastTempState = -1;
+    int lastVoltageState = 0;
+    int lastTempState = 0;
 
     // unsigned long currentMillis = 0;
     unsigned long lastTempStateTime = 0;
@@ -179,7 +179,7 @@ public:
     bool setCapacity(int capacity);
     int getCapacity();
 
-    bool setResistance(uint8_t resistance);
+    bool setResistance(int resistance);
     int getResistance();
 
     float calculateChargeTime(int initialPercentage, int targetPercentage);
@@ -191,7 +191,8 @@ public:
     float getCurrentVoltage();
     int getBatteryApprxSize();
 
-    void setHostname(const String& hostname);
+    //void setHostname(const String& hostname);
+
     void getHostname();
 
     // void setHostname(const char* hostname);
@@ -215,9 +216,9 @@ public:
     bool getHttpEn();
     bool setHttpEn(bool status);
 
-    bool isValidHostname(const String& hostname);
+    // bool isValidHostname(const String& hostname);
 
-    bool telegramSendMessage(const char *message);
+    // bool telegramSendMessage(const char *message);
 
     Preferences preferences;
 
