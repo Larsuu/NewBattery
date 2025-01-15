@@ -1285,7 +1285,7 @@ bool Battery::getActivateVoltageBoost() {
         return false;
 }
 
-float Battery::calculateChargeTime(int initialPercentage, int targetPercentage) {
+float Battery::calculateChargeTime(uint8_t initialPercentage, uint8_t targetPercentage) {
     // Calculate the charge needed in Ah
     float chargeNeeded = battery.capct * ((targetPercentage - initialPercentage) / (float)100.0);
     // Serial.println(chargeNeeded);
@@ -1298,7 +1298,7 @@ float Battery::calculateChargeTime(int initialPercentage, int targetPercentage) 
 }
 
     // Setter function to set charger current and battery capacity
-bool Battery::setCharger(int chargerCurrent) {
+bool Battery::setCharger(uint8_t chargerCurrent) {
     if(chargerCurrent > 0 && chargerCurrent < 11) {
         battery.chrgr.current = chargerCurrent;
         return true;
@@ -1307,7 +1307,7 @@ bool Battery::setCharger(int chargerCurrent) {
 }
 
 // Getter for charger current
-int Battery::getCharger() {
+uint8_t Battery::getCharger() {
     return battery.chrgr.current;
 }
 
@@ -1357,7 +1357,7 @@ float Battery::getCurrentVoltage() {
     return volts;
 }
 
-int Battery::getBatteryApprxSize() {
+uint8_t Battery::getBatteryApprxSize() {
     return battery.sizeApprx;
 }
 
@@ -1441,7 +1441,7 @@ void Battery::getHostname() {
     battery.name = hostname;
 }
 
-bool Battery::setResistance(int resistance) {
+bool Battery::setResistance(uint8_t resistance) {
     if (resistance > 10 && resistance < 255) {
         battery.heater.resistance = resistance;
         return true;
@@ -1450,7 +1450,7 @@ bool Battery::setResistance(int resistance) {
     }
 }
 
-int Battery::getResistance() {
+uint8_t Battery::getResistance() {
     return battery.heater.resistance;
 }
 

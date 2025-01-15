@@ -115,8 +115,7 @@ public:
     char logBuffer[50] = {0};
     int logIndex = 0;
     uint32_t lastLogTime = 0;
-    int lastVoltageState = 0;
-    int lastTempState = 0;
+
 
     // unsigned long currentMillis = 0;
     unsigned long lastTempStateTime = 0;
@@ -124,6 +123,7 @@ public:
 
     bool setup_done = false;
     unsigned long dallasTime = 0;
+    //unsigned long loggingTime = 0;
 
 
     void loop();
@@ -173,23 +173,23 @@ public:
     bool activateVoltageBoost(bool value);
     bool getActivateVoltageBoost();
 
-    bool setCharger(int chargeCurrent);
-    int getCharger();
+    bool setCharger(uint8_t chargeCurrent);
+    uint8_t getCharger();
 
     bool setCapacity(int capacity);
     int getCapacity();
 
-    bool setResistance(int resistance);
-    int getResistance();
+    bool setResistance(uint8_t resistance);
+    uint8_t getResistance();
 
-    float calculateChargeTime(int initialPercentage, int targetPercentage);
+    float calculateChargeTime(uint8_t initialPercentage, uint8_t targetPercentage);
     void  readVoltage(uint32_t intervalSeconds);
 
     void adjustHeaterSettings();
 
     uint32_t determineBatterySeries(uint32_t measuredVoltage_mV);
     float getCurrentVoltage();
-    int getBatteryApprxSize();
+    uint8_t getBatteryApprxSize();
 
     //void setHostname(const String& hostname);
 
