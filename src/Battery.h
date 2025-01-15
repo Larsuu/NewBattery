@@ -79,6 +79,15 @@ enum SettingsType {
     ALL
 };
 
+enum TuneState {
+    STARTUP,
+    TUNING,
+    INITIALIZING,
+    IDLE,
+    ERROR,
+    RETUNE
+};
+
 class Battery {
 public:   
     // Static method to get the instance of the class
@@ -100,6 +109,7 @@ public:
     unsigned long currentMillis = 0;
     unsigned long voltageMillis = 0;
     unsigned long heaterMillis = 0;
+    unsigned long batteryInitTime = 0;
 
     unsigned long heaterTimer = 0;
     char logBuffer[50] = {0};
@@ -115,16 +125,11 @@ public:
     bool setup_done = false;
     unsigned long dallasTime = 0;
 
-    // PID variables
-    //float pidInput, pidOutput, pidSetpoint;
-    //float kp = 1.0;
-    //float ki = 0.02;
-    //float kd = 0.02;
 
     void loop();
     void setup();
     bool init();
-    void batteryInit();
+    bool batteryInit();
     void resetSettings(bool reset);
 
 
@@ -195,6 +200,8 @@ public:
     void updateHeaterPID();
     void controlHeaterPWM();
 
+    void manageTuning();
+
     void publishBatteryData();
 
     void mqttSetup();
@@ -234,30 +241,13 @@ public:
           yellow(yellowLed),
           mqtt(espClient)
     {
-
-        // WiFi.begin(battery.wlan.ssid.c_str(), battery.wlan.pass.c_str());
-        //Serial.println(WiFi.status());
-        //WiFi.setHostname(battery.name.c_str());
         
         adc1_config_width(ADC_WIDTH_12Bit);
         adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
         esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH_BIT_12, V_REF, &characteristics);
 
         heaterPID.SetMode(QuickPID::Control::manual);
-        heaterPID.SetOutputLimits(0, 2);
-
-        green.start();
-        green.setDelay(1000);
-
-        yellow.start();
-        yellow.setDelay(1000);
-
-        tuner.Configure(battery.stune.inputSpan, battery.stune.outputSpan, battery.stune.outputStart, battery.stune.outputStep, battery.stune.testTimeSec, battery.stune.settleTimeSec, battery.stune.samples);
-        tuner.SetEmergencyStop(battery.stune.tempLimit);
-
-
-        ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
-        ledcAttachPin(heaterPin, PWM_CHANNEL);
+        heaterPID.SetOutputLimits(0, 0);
 
         // client.setInsecure()
         #ifdef TELEGRAM_ENABLED
@@ -287,6 +277,9 @@ public:
     float lastTemperature = 0.0;
 
     esp_adc_cal_characteristics_t characteristics;
+
+    TuneState tuningState = STARTUP;
+    unsigned long tuningMillis = 0;
 };
 
 #endif // BATTERY_H

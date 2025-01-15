@@ -10,7 +10,8 @@
             "limits": "cpp",
             "cmath": "cpp",
             "string": "cpp",
-            "typeinfo": "cpp"
+            "typeinfo": "cpp",
+            "functional": "cpp"
         },
         "editor.tokenColorCustomizations": {
             "[*Light*]": {

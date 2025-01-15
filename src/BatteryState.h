@@ -32,7 +32,7 @@ private:
     int error;
 public:
     // Member variables
-    String            name;                // Name of the battery
+    String          name;                // Name of the battery
     uint8_t         size;                // Size of the battery
     bool            init;                // Init of the battery
     uint8_t         initError;           // Init error of the battery
@@ -90,6 +90,7 @@ public:
         bool        pidDone;        // PID stune done
         bool        pidEnable;      // PID sTune enable
         bool        enable;         // Enable/disable heater
+        bool        init;           // init for heater
     } heater;
 
     // Nested struct for WiFi
@@ -146,7 +147,7 @@ public:
         float       tempLimit;      // Temperature limit
     
         bool        enable;         // Enable/disable sTune
-        bool        firstRun;    // First run PID
+        bool        firstRun;       // First run PID
         bool        run;            // Run/stop sTune
         bool        done;           // Done/not done sTune
         bool        error;          // Error/no error sTune
@@ -212,17 +213,18 @@ public:
               false, // pidRun
               false, // pidDone
               false, // pidEnable
-              false  // enable
+              false,  // enable
+              false  // init
           },
           wlan{false, "", "", 0}, // Initialize WiFi struct
           http{false, "", ""}, // Initialize HTTP struct
           mqtt{false, false, "", "", "", 1883, 0}, // Initialize MQTT struct
           telegram{false,false, "", 922951523, 0, "922951523"}, // Initialize Telegram struct 
           stune{
-                0,              // timeNow
-                250,            // lenTime
-                0,             // startTime
-                1000,           // endTime 
+                0,          // timeNow
+                250,        // lenTime
+                0,          // startTime
+                1000,       // endTime 
 
                 40.0,       // inputSpan: Input span for tuning
                 255.0,      // outputSpan: Output span for tuning
