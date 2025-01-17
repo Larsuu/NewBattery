@@ -42,7 +42,7 @@
 #define YELLOW_LED 18
 #define RED_LED 17
 #define PWM_CHANNEL 0
-#define PWM_FREQ 100
+#define PWM_FREQ 255
 #define PWM_RESOLUTION 8
 #else
 #define TEMP_SENSOR 33
@@ -53,7 +53,7 @@
 #define YELLOW_LED 18
 #define RED_LED 17
 #define PWM_CHANNEL 0
-#define PWM_FREQ 254
+#define PWM_FREQ 255
 #define PWM_RESOLUTION 8
 #endif
 
@@ -82,7 +82,7 @@ enum SettingsType {
 enum TuneState {
     STARTUP,
     TUNING,
-    INITIALIZING,
+    REINIT,
     IDLE,
     ERROR,
     RETUNE
@@ -116,6 +116,7 @@ public:
     int logIndex = 0;
     uint32_t lastLogTime = 0;
 
+    bool tuningActive = false;
 
     // unsigned long currentMillis = 0;
     unsigned long lastTempStateTime = 0;
@@ -231,25 +232,22 @@ public:
     const int greenLed = GREEN_LED;
     const int yellowLed = YELLOW_LED;
     const int redLed = RED_LED;
+    const int pwmChannel = PWM_CHANNEL;
+    const int pwmFreq = PWM_FREQ;
+    const int pwmResolution = PWM_RESOLUTION;
 
     Battery() 
         : battery(),
           oneWire(tempSensor),
           dallas(&oneWire),
           heaterPID(&battery.heater.pidInput, &battery.heater.pidOutput, &battery.heater.pidSetpoint, battery.heater.pidP, battery.heater.pidI, battery.heater.pidD, QuickPID::Action::direct),
-          tuner(&battery.stune.pidInput, &battery.stune.pidOutput, tuner.ZN_PID, tuner.directIP, tuner.printALL),
+          tuner(&battery.heater.pidInput, &battery.heater.pidOutput, tuner.ZN_PID, tuner.directIP, tuner.printALL),
           green(greenLed),
           yellow(yellowLed),
           mqtt(espClient)
     {
         
-        adc1_config_width(ADC_WIDTH_12Bit);
-        adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
-        esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH_BIT_12, V_REF, &characteristics);
-
-        heaterPID.SetMode(QuickPID::Control::manual);
-        heaterPID.SetOutputLimits(0, 0);
-
+ 
         // client.setInsecure()
         #ifdef TELEGRAM_ENABLED
         client.setInsecure();
@@ -273,6 +271,10 @@ public:
     // LAN remote control and monitoring
     WiFiClient espClient;
     PubSubClient mqtt;
+
+    float optimumOutput;
+
+    uint8_t sumIndex = 0;
 
     float lastVoltage = 0.0;
     float lastTemperature = 0.0;

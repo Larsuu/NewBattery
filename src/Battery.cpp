@@ -12,20 +12,6 @@
 #define LOGS_SIZE 10
 
 
-/*
-struct logEntry {
-    int voltageState;
-    int tempState;
-    int previousVState;
-    int previousTState;
-    uint32_t timestamps;
-};
-
-struct statesLog {
-    logEntry entries[LOGS_SIZE];
-    int index;
-};
-*/
 
 Battery::~Battery() {
     digitalWrite(heaterPin, LOW);    // Turn off heater
@@ -33,7 +19,6 @@ Battery::~Battery() {
     // Save settings before destruction
     saveSettings(ALL);
     // Stop PWM
-    ledcDetachPin(heaterPin);
     // Turn off LEDs
     //red.stop();
     yellow.stop();
@@ -42,18 +27,23 @@ Battery::~Battery() {
 
 void Battery::setup() {
 
+        loadSettings(ALL);
 
+        adc1_config_width(ADC_WIDTH_12Bit);
+        adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
+        esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH_BIT_12, V_REF, &characteristics);
 
         pinMode(chargerPin, OUTPUT);
         pinMode(heaterPin, OUTPUT);
-        pinMode(redLed, OUTPUT);
-        pinMode(greenLed, OUTPUT);
-        pinMode(yellowLed, OUTPUT);
 
-        digitalWrite(heaterPin, LOW);
-        digitalWrite(redLed, HIGH);
-        digitalWrite(greenLed, HIGH);
-        digitalWrite(yellowLed, LOW);
+        ledcSetup(pwmChannel, pwmFreq, pwmResolution);
+        ledcAttachPin(heaterPin, pwmChannel);   
+
+        heaterPID.SetMode(QuickPID::Control::automatic);
+        heaterPID.SetOutputLimits(0, static_cast<float>(battery.heater.powerLimit));
+        heaterPID.SetTunings(battery.heater.pidP, battery.heater.pidI, battery.heater.pidD);
+        heaterPID.SetProportionalMode(QuickPID::pMode::pOnError);
+        heaterPID.SetAntiWindupMode(QuickPID::iAwMode::iAwClamp);
 
         dallas.begin();
 
@@ -63,19 +53,6 @@ void Battery::setup() {
         yellow.start();
         yellow.setDelay(1000, 0);
 
-        loadSettings(ALL);
-
-        Serial.print("Tuning Configure: ");
-        tuner.Configure(        battery.stune.inputSpan, 
-                                battery.stune.outputSpan, 
-                                battery.stune.outputStart, 
-                                battery.stune.outputStep, 
-                                battery.stune.testTimeSec, 
-                                battery.stune.settleTimeSec, 
-                                battery.stune.samples);
-
-        Serial.print("Tuning SetEmergencyStop: ");
-        tuner.SetEmergencyStop(battery.stune.tempLimit);
 }
 
 void Battery::loop() {
@@ -83,79 +60,332 @@ void Battery::loop() {
     green.blink(); 
     yellow.blink();  
 
+    handleMqtt(); 
+
     readTemperature();              // Temperature reading
 
-    readVoltage(5000);                 // Voltage reading
+    readVoltage(500);                 // Voltage reading
 
     handleBatteryControl();         // Logic for battery control 
 
-    if(init()) controlHeaterPWM();
+    if(!tuningActive) controlHeaterPWM();
 
-    handleMqtt(); 
+    if(tuningActive) manageTuning();
+
+
 
 }  // end loop
 
 
 bool Battery::init() {
 
-    if(battery.heater.init) {
-        return true;
+    if(battery.heater.init) {       // feedback from the manageTuning() ? true or false
+        return true;            // for ECO mode heating, default failsafe for battery
     }
     else {
-        manageTuning();
         return false;
     }
 }
 
 bool Battery::batteryInit() {
 
-        if(battery.size > 6 && battery.size < 21) 
+        if(battery.size > 6 && battery.size < 21 ) 
         {
-
-            #ifdef DEBUG
-                Serial.println(" ");    
-                Serial.println("Battery init success: ");
-                Serial.print(" Size: ");
-                Serial.print(battery.size);
-                Serial.print(" SizeApprx: ");
-                Serial.println(battery.sizeApprx);
-                Serial.print(" Difference: ");
-                Serial.print(battery.size - battery.sizeApprx);
-                Serial.print(" & ");
-                Serial.print(battery.sizeApprx - battery.size);
-            #endif
-
             if (battery.sizeApprx - battery.size <= 3 || battery.size - battery.sizeApprx <= 3) 
             {
-                    battery.init = true;
-                    #ifdef DEBUG
-                        Serial.println("Battery init success: ");
-                    #endif
-                    return true;
+                battery.init = true;
+                return true;
             }
-            else {
+            else 
+            {
+                battery.init = false;
                 return false;
             }
         }
-        else {
-            return false;
-        }
+        else return false;
 }
     
 
+void Battery::manageTuning() {
+
+
+    switch (tuningState) {
+
+        case STARTUP:
+
+            tuningActive = true;
+            tuningState = TUNING; // Move to TUNING state 
+            Serial.println("TUNING");
+
+            break;
+        case TUNING:
+
+            tuningActive = true;
+
+            adjustHeaterSettings();
+
+            heaterPID.SetMode(QuickPID::Control::manual);
+            heaterPID.SetTunings(battery.heater.pidP, battery.heater.pidI, battery.heater.pidD);
+            heaterPID.SetProportionalMode(QuickPID::pMode::pOnMeas);
+            heaterPID.SetAntiWindupMode(QuickPID::iAwMode::iAwClamp);
+
+            ledcWrite(PWM_CHANNEL, static_cast<uint32_t>(0));
+
+            tuner.Configure(            battery.stune.inputSpan, 
+                                        battery.stune.outputSpan, 
+                                        battery.stune.outputStart, 
+                                        battery.stune.outputStep, 
+                                        battery.stune.testTimeSec, 
+                                        battery.stune.settleTimeSec, 
+                                        battery.stune.samples);
+                                        
+            tuner.SetEmergencyStop(battery.stune.tempLimit);
+
+            tuningState = RETUNE;
+            Serial.println("RETUNE");
+
+            break;
+
+        case REINIT:
+
+            
+            ledcSetup(pwmChannel, pwmFreq, pwmResolution);
+            ledcAttachPin(heaterPin, pwmChannel);
+
+            heaterPID.SetMode(QuickPID::Control::automatic);
+            heaterPID.SetOutputLimits(0, battery.heater.powerLimit);
+            heaterPID.SetTunings(battery.heater.pidP, battery.heater.pidI, battery.heater.pidD);
+            heaterPID.SetProportionalMode(QuickPID::pMode::pOnError);
+            heaterPID.SetAntiWindupMode(QuickPID::iAwMode::iAwClamp);
+            heaterPID.Initialize();
+
+            tuningActive = false;
+            tuningState = IDLE;
+
+            Serial.println("IDLE");
+            break;
+
+        case RETUNE:
+                    runTune();
+            break;
+
+        case IDLE:
+                ledcWrite(PWM_CHANNEL, static_cast<uint32_t>(0));
+
+                heaterPID.Initialize();
+
+                battery.stune.done = true;
+
+                tuningActive = false;
+            break;
+
+        case ERROR:
+
+            break;
+
+        default:
+            tuningState = IDLE; // Fallback to IDLE state
+            break;
+        }
+    } 
+
+
+void Battery::runTune() {
+
+
+            optimumOutput = tuner.softPwm(  heaterPin, 
+                                            battery.heater.pidInput, 
+                                            battery.heater.pidOutput, 
+                                            battery.heater.pidSetpoint, 
+                                            battery.stune.outputSpan, 0);
+
+            switch (tuner.Run()) {
+
+                case tuner.sample:
+                    battery.heater.pidInput = battery.temperature;
+                    ledcWrite(PWM_CHANNEL, static_cast<uint32_t>(battery.stune.outputStep));
+                    tuner.plotter(battery.heater.pidInput, battery.heater.pidOutput, battery.heater.pidSetpoint, 0.1f, 10); // Plotting
+                    break;
+
+                case tuner.tunings: 
+                    tuner.GetAutoTunings(&battery.stune.pidP, &battery.stune.pidI, &battery.stune.pidD); // Get tuned values
+
+                    Serial.print("heaterP: ");
+                    Serial.print(battery.heater.pidP);
+                    Serial.print("stuneP ");
+                    Serial.print(battery.stune.pidP);
+                    Serial.print("heaterI: ");
+                    Serial.print(battery.heater.pidI);
+                    Serial.print("stuneI ");
+                    Serial.print(battery.stune.pidI);
+                    Serial.print("heaterD: ");
+                    Serial.print(battery.heater.pidD);
+                    Serial.print("stuneD ");
+                    Serial.println(battery.stune.pidD);
+
+                    float contra = tuner.GetTau() / tuner.GetDeadTime();
+
+                    if(contra > 0.75) {
+                        if(battery.stune.pidP > float(1.0) && battery.stune.pidP < float(100)) {
+
+                            battery.heater.pidP = battery.stune.pidP;
+
+                            if(battery.stune.pidI > float(0.000) && battery.stune.pidI < float(1.0)) {
+
+                                battery.heater.pidI = battery.stune.pidI;
+
+                                if(battery.stune.pidD > float(0.000) && battery.stune.pidD < float(1.0)) {
+
+                                    battery.heater.pidD = battery.stune.pidD;
+
+                                    battery.stune.done = true;
+
+                                    Serial.println("TUNING: DONE");
+                                    Serial.print("PID: ");
+                                    Serial.print(battery.heater.pidP);
+                                    Serial.print(" ");
+                                    Serial.print(battery.heater.pidI);
+                                    Serial.print(" ");
+                                    Serial.println(battery.heater.pidD);
+
+                                    tuningState = REINIT;
+
+                                    saveSettings(PID);
+                        
+                                }
+                            }
+                        }
+                    }
+                    else {
+                        Serial.println("TUNING: FAILED - using default values");
+
+                        battery.heater.pidP = float(battery.heater.resistance / 6)  ;
+                        battery.heater.pidI = float(battery.heater.resistance / 1000);
+                        battery.heater.pidD = float(battery.heater.resistance / 500);
+
+                        saveSettings(PID);
+                        ledcWrite(PWM_CHANNEL, static_cast<uint32_t>(0.0));
+                        tuningState = REINIT;
+                    
+                    }
+                  
+                    tuningState = REINIT;
+                    break;
+
+            }     
+    }
+
+
+
+                /*
+                    if ((tuner.GetTau() / tuner.GetDeadTime()) > 0.5 ) {
+                        sumIndex++;
+                        if(battery.stune.pidP > float(3.0) && battery.stune.pidP < float(100)) 
+                            { pidP[sumIndex] = battery.stune.pidP; }
+                        else 
+                            { pidP[sumIndex] = float(battery.heater.resistance / 3); }
+
+                        if(battery.stune.pidI > float(0.0) && battery.stune.pidI < float(1.0)) 
+                            { pidI[sumIndex] = battery.stune.pidI; }
+                        else 
+                            { pidI[sumIndex] = float(battery.heater.resistance / 1000); }
+
+                        if(battery.stune.pidD > float(0.0) && battery.stune.pidD < float(1.0)) 
+                            { pidD[sumIndex] = battery.stune.pidD; }
+                        else 
+                            { pidD[sumIndex] = float(battery.heater.resistance / 500); }
+
+
+                            if(sumIndex < 3) {   
+
+                                    for(int i = 0; i < sumIndex; i++) {
+
+                                        pidP_avg += pidP[i];
+                                        pidI_avg += pidI[i];
+                                        pidD_avg += pidD[i];
+
+                                    }
+
+                                    pidP_avg /= sumIndex;
+                                    pidI_avg /= sumIndex;
+                                    pidD_avg /= sumIndex;
+
+                                    Serial.print("pidP_avg: ");
+                                    Serial.println(pidP_avg);
+                                    Serial.print("pidI_avg: ");
+                                    Serial.println(pidI_avg);
+                                    Serial.print("pidD_avg: ");
+                                    Serial.println(pidD_avg);       
+
+
+                                    if(pidP_avg > float(3.0) && pidP_avg < float(100)) {
+                                        battery.heater.pidP = pidP_avg;
+                                    }
+                                    else {
+                                        battery.heater.pidP = float(battery.heater.resistance / 5);
+                                    }
+
+
+                                    if(pidI_avg > float(0.0) && pidI_avg < float(1.0)) {
+                                        battery.heater.pidI = pidI_avg;
+                                    }
+                                    else {
+                                        battery.heater.pidI = float(battery.heater.resistance / 1000);
+                                    }
+
+                                    if(pidD_avg > float(0.0) && pidD_avg < float(1.0)) {
+                                        battery.heater.pidD = pidD_avg;
+                                    }
+                                    else {
+                                        battery.heater.pidD = float(battery.heater.resistance / 500);
+                                    }
+
+                            
+                                    battery.heater.pidP = pidP_avg;
+                                    battery.heater.pidI = pidI_avg;
+                                    battery.heater.pidD = pidD_avg;
+                                    
+                                    battery.stune.done = true;
+                                    battery.heater.enable = true;
+
+                                    adjustHeaterSettings();
+                                    saveSettings(PID);
+                            }
+
+                        */
+
+
+/*
+    Control the PWM with updateHeaterPID function
+*/
+
+
+void Battery::controlHeaterPWM() {
+    if(heaterPID.Compute() && battery.voltageInPrecent > 30) ledcWrite(PWM_CHANNEL, static_cast<uint32_t>(battery.heater.pidOutput));
+}
+
+void Battery::readTemperature() {
+
+    if (millis() - dallasTime  >= 1000) {
+        dallasTime = millis();
+        dallas.requestTemperatures();
+        float temperature = dallas.getTempCByIndex(0);
+        if (temperature == DEVICE_DISCONNECTED_C) {
+            Serial.println(" Error: Could not read temperature data ");
+            battery.temperature = 127;
+        } 
+        else {
+            battery.temperature = temperature;
+            battery.heater.pidInput = temperature;
+
+        }
+    }
+}
 
 /*
     the QuickPID Wrapping Function, executed every second. 
 */
 void Battery::updateHeaterPID() {
-
-
-
-
-    if(battery.stune.enable ) {
-                runTune();
-    }
-
 
 }
 
@@ -178,195 +408,11 @@ void Battery::adjustHeaterSettings() {
 }
 
 
-void Battery::runTune() {
-    if (!battery.stune.done) {
-
-        // boostButtonPress_Time + lenght_stuneRunTime is greater than current time
-        if(battery.stune.startTime + (battery.stune.lenTime * 1000)  > millis()) {
-
-        tuner.softPwm(  heaterPin, 
-                        battery.stune.pidInput, 
-                        battery.stune.pidOutput, 
-                        battery.stune.pidSetpoint, 
-                        battery.stune.outputSpan, 0);
-
-            switch (tuner.Run()) {
-                case tuner.sample: // Active once per sample during test
-                    battery.stune.pidInput = battery.temperature;
-                    tuner.plotter(battery.stune.pidInput, battery.stune.pidOutput, battery.stune.pidSetpoint, 0.1f, 10); // Plotting
-                    break;
-
-
-                case tuner.tunings: 
-                    tuner.GetAutoTunings(&battery.stune.pidP, &battery.stune.pidI, &battery.stune.pidD); // Get tuned values
-                    if ((tuner.GetTau() / tuner.GetDeadTime()) > 0.5 ) {
-
-                        if (battery.stune.pidP > 0.1 && battery.stune.pidP < 100) {
-
-                            if (battery.stune.pidI > 0.0 && battery.stune.pidI < 10) {
-
-                                if (battery.stune.pidD > 0.0 && battery.stune.pidD < 10 && battery.stune.pidD < battery.stune.pidP) {
-
-                                    battery.heater.pidP = battery.stune.pidP;
-                                    battery.heater.pidI = battery.stune.pidI;
-                                    battery.heater.pidD = battery.stune.pidD;
-                                    battery.stune.done = true;
-                                    battery.heater.enable = true;
-                                    adjustHeaterSettings();
-                                    saveSettings(PID);
-                                }  
-                            }
-                        }
-                        
-                    }
-                    else { 
-                        // for (battery.stune.runTimes = 0; battery.stune.runTimes < 5; battery.stune.runTimes++; ) {
-
-                            battery.stune.outputStep += constrain((255 / 10), 25, 255); // Ensure it stays within bounds
-                            battery.stune.testTimeSec += constrain((300 / 5), 30, 720); // Ensure it stays within bounds
-                            battery.stune.samples = battery.stune.testTimeSec;
-                              
-                            // Reconfigure tuner with new parameters
-                            tuner.Configure(
-                                battery.stune.inputSpan,
-                                battery.stune.outputSpan,
-                                battery.stune.outputStart,
-                                battery.stune.outputStep,
-                                battery.stune.testTimeSec,
-                                battery.stune.settleTimeSec,
-                                battery.stune.samples );
-                      
-                        }
-                    
-                    break;
-            }     
-        } 
-    }
-}
-/*
-    Control the PWM with updateHeaterPID function
-*/
-void Battery::controlHeaterPWM() {
-    if(heaterPID.Compute() && battery.voltageInPrecent > 30 ) ledcWrite(PWM_CHANNEL, static_cast<uint32_t>(battery.heater.pidOutput));
-}
-
-void Battery::readTemperature() {
-
-    if (millis() - dallasTime  >= 1000) {
-        dallasTime = millis();
-        dallas.requestTemperatures();
-        float temperature = dallas.getTempCByIndex(0);
-        if (temperature == DEVICE_DISCONNECTED_C) {
-            Serial.println(" Error: Could not read temperature data ");
-            battery.temperature = 127;
-        } 
-        else {
-            battery.temperature = temperature;
-            battery.heater.pidInput = temperature;
-
-        }
-    }
-}
-
-void Battery::manageTuning() {
-
-
-    switch (tuningState) {
-
-        case STARTUP:
-            if (batteryInit()) 
-                {
-                tuningState = TUNING; // Move to TUNING state
-                #ifdef DEBUG
-                    Serial.println("Tuning started");
-                #endif
-                }
-            else 
-                {
-                tuningState = ERROR;
-                #ifdef DEBUG
-                    Serial.println("Tuning failed");
-                #endif
-                }
-            break;
-
-        case TUNING:
-
-        if(battery.stune.done)
-            {
-            tuningState = INITIALIZING;
-            #ifdef DEBUG
-                Serial.println("Tuning done");
-            #endif
-            }
-        else 
-            {
-            runTune(); // Run the tuning process
-            #ifdef DEBUG
-                // Serial.println("Tuning running");
-            #endif
-            }
-
-            break;
-
-        case INITIALIZING:
-
-        if(battery.heater.enable) {
-            #ifdef DEBUG
-            Serial.println("heater enabled");
-            #endif
-
-            if(!battery.stune.firstRun) 
-                {
-                Serial.println("Initializing PID");
-                ledcSetup(PWM_CHANNEL, 255, 8);
-                ledcAttachPin(heaterPin, PWM_CHANNEL);
-
-
-                heaterPID.SetMode(QuickPID::Control::automatic);
-                heaterPID.SetOutputLimits(0, battery.heater.powerLimit);
-                heaterPID.SetTunings(battery.heater.pidP, battery.heater.pidI, battery.heater.pidD);
-                heaterPID.SetProportionalMode(QuickPID::pMode::pOnError);
-                heaterPID.SetAntiWindupMode(QuickPID::iAwMode::iAwClamp);
-                battery.stune.firstRun = true;
-                }
-            else
-                { 
-                    tuningState = IDLE;
-                    battery.heater.init = true;
-                    #ifdef DEBUG
-                        Serial.println("Tuning done");
-                    #endif
-                }
-
-        break;
-        case IDLE:
-            // Serial.println("Tuning done");
-            break;
-
-        case ERROR:
-
-            break;
-
-        default:
-            tuningState = IDLE; // Fallback to IDLE state
-            break;
-    }
-}
-}
-
 void Battery::handleBatteryControl() {
 
     
-    if (millis() - lastVoltageStateTime >= 2500) {
+    if (millis() - lastVoltageStateTime >= 5000) {
         lastVoltageStateTime = millis();
-
-        if(millis() - batteryInitTime >= 60000) {
-            batteryInitTime = millis();
-            battery.heater.init = false;
-            tuningState = STARTUP;
-        }
-
 
         Serial.println(" ");
 
@@ -573,7 +619,7 @@ void Battery::handleBatteryControl() {
     Serial.print(battery.heater.pidOutput);
     Serial.print(" Sp: ");
     Serial.print(battery.heater.pidSetpoint);
-    Serial.print(" ");
+    Serial.println(" ");
 
     #endif
 
@@ -966,6 +1012,7 @@ void Battery::readVoltage(uint32_t intervalSeconds) {
     if (millis() - battery.adc.time >= intervalSeconds) {
         battery.adc.time = millis(); // Update the time in the adc struct
 
+/*
         if (!battery.chrgr.enable) {
             #ifdef VERSION_2
             gpio_set_direction(GPIO_NUM_25, GPIO_MODE_OUTPUT);
@@ -976,12 +1023,16 @@ void Battery::readVoltage(uint32_t intervalSeconds) {
             gpio_set_direction(GPIO_NUM_32, GPIO_MODE_OUTPUT);
             gpio_set_level(GPIO_NUM_32, HIGH);
             delay(6);
+
             #endif
-        }
+            }
+*/
+    
 
         // Read the voltage from the ADC
         battery.adc.raw = adc1_get_raw(ADC_CHANNEL); // Store raw ADC value in the adc struct
 
+/*
         if (!battery.chrgr.enable) {
             #ifdef VERSION_2
             gpio_set_direction(GPIO_NUM_25, GPIO_MODE_OUTPUT);
@@ -991,7 +1042,9 @@ void Battery::readVoltage(uint32_t intervalSeconds) {
             gpio_set_direction(GPIO_NUM_32, GPIO_MODE_OUTPUT);
             gpio_set_level(GPIO_NUM_32, LOW);
             #endif
-        }
+            }
+*/
+        
 
         if (battery.firstRun) {
             for (int i = 0; i < battery.adc.mAvg; i++) {
@@ -1026,11 +1079,14 @@ void Battery::readVoltage(uint32_t intervalSeconds) {
             }
             */
 
+
+/*
         #ifdef DEBUG
             Serial.print(" MV: ");
             Serial.print(battery.milliVoltage);
             Serial.print(" ");
         #endif
+*/
 
            battery.sizeApprx = determineBatterySeries(battery.milliVoltage);
 

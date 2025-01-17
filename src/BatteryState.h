@@ -204,8 +204,8 @@ public:
               40,   // boostTemp - setting reasonable default
               30,   // maxPower - setting to 100% as default
               0,    // powerLimit
-              1.0,  // pidP
-              0.01, // pidI
+              13.0,  // pidP
+              0.1, // pidI
               0.2,  // pidD
               25.0, // pidInput - starting at room temperature
               40.0, // pidSetpoint - default target temperature
@@ -222,17 +222,17 @@ public:
           telegram{false,false, "", 922951523, 0, "922951523"}, // Initialize Telegram struct 
           stune{
                 0,          // timeNow
-                250,        // lenTime
+                1250,        // lenTime
                 0,          // startTime
                 1000,       // endTime 
 
                 40.0,       // inputSpan: Input span for tuning
                 255.0,      // outputSpan: Output span for tuning
                 0.0,        // outputStart: Initial output value
-                50.0,       // outputStep: Step size for output adjustments
-                60,         // testTimeSec: Duration of the test in seconds
-                10,         // settleTimeSec: Settle time for the tuning process
-                60,         // samples: Number of samples to collect
+                160.0,       // outputStep: Step size for output adjustments
+                250,         // testTimeSec: Duration of the test in seconds
+                0,         // settleTimeSec: Settle time for the tuning process
+                250,         // samples: Number of samples to collect
                 40.0,       // tempLimit: Temperature limit for tuning
 
                 false,      // enable: Flag to enable/disable sTune

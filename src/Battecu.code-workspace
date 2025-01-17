@@ -19,7 +19,7 @@
                     {
                         "scope": "ref.matchtext",
                         "settings": {
-                            "foreground": "#000"
+                            "foreground": "#000000"
                         }
                     }
                 ]
@@ -29,28 +29,28 @@
                     {
                         "scope": "ref.matchtext",
                         "settings": {
-                            "foreground": "#fff"
+                            "foreground": "#ffffff"
                         }
                     }
                 ]
             },
             "textMateRules": [
                 {
-                    "scope": "googletest.failed",
+                    "scope": "test.failed",
                     "settings": {
-                        "foreground": "#f00"
+                        "foreground": "#ff0000"
                     }
                 },
                 {
-                    "scope": "googletest.passed",
+                    "scope": "test.passed",
                     "settings": {
-                        "foreground": "#0f0"
+                        "foreground": "#00ff00"
                     }
                 },
                 {
-                    "scope": "googletest.run",
+                    "scope": "test.running",
                     "settings": {
-                        "foreground": "#0f0"
+                        "foreground": "#00ff00"
                     }
                 }
             ]
